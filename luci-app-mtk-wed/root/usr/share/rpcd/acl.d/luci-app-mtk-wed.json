@@ -1,0 +1,16 @@
+{
+	"luci-app-mtk-wed": {
+		"description": "Grant access to MediaTek hardware offload status and settings",
+		"read": {
+			"ubus": {
+				"luci.mtk_wed": [ "getStatus", "getPorts", "getPpeEntries", "getMacStats", "getWifiStats" ]
+			}
+		},
+		"write": {
+			"ubus": {
+				"luci.mtk_wed": [ "setFlowOffload", "setWedEnable", "setCpuSettings" ]
+			},
+			"uci": [ "firewall", "mtk_wed" ]
+		}
+	}
+}

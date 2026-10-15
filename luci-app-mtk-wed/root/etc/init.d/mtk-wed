@@ -1,0 +1,29 @@
+#!/bin/sh /etc/rc.common
+# SPDX-License-Identifier: Apache-2.0
+# Re-apply the CPU governor / max frequency saved from the LuCI page.
+
+START=99
+
+apply_cpu() {
+	local gov freq p f ok
+	config_get gov cpu governor
+	config_get freq cpu max_freq
+	for p in /sys/devices/system/cpu/cpufreq/policy*; do
+		[ -d "$p" ] || continue
+		if [ -n "$gov" ]; then
+			ok=0
+			for f in $(cat "$p/scaling_available_governors" 2>/dev/null); do [ "$f" = "$gov" ] && ok=1; done
+			[ $ok = 1 ] && echo "$gov" > "$p/scaling_governor"
+		fi
+		if [ -n "$freq" ]; then
+			ok=0
+			for f in $(cat "$p/scaling_available_frequencies" 2>/dev/null); do [ "$f" = "$freq" ] && ok=1; done
+			[ $ok = 1 ] && echo "$freq" > "$p/scaling_max_freq"
+		fi
+	done
+}
+
+start() {
+	config_load mtk_wed
+	apply_cpu
+}

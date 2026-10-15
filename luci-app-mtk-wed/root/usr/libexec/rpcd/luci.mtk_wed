@@ -1,0 +1,1053 @@
+#!/bin/sh
+# SPDX-License-Identifier: Apache-2.0
+#
+# rpcd backend for luci-app-mtk-wed: hardware offload status for MediaTek
+# Filogic SoCs (MT7981, MT7986, MT7987, MT7988) on the mainline kernel.
+#
+# Data sources (kernel 6.18, mt76 467ae2e):
+#   /sys/kernel/debug/ppeN/{entries,bind}  mtk_ppe_debugfs.c, one dir per PPE
+#                                          (two on MT7981/6/7, three on MT7988)
+#   /sys/kernel/debug/wedN/{txinfo,...}    mtk_wed_debugfs.c; txinfo is empty
+#                                          while no WLAN device is attached
+#   /sys/module/<mod>/parameters/wed_enable   mt76 module parameter of
+#                                          mt7915e or mt7996e
+#   /etc/modules.conf                      "options <mod> wed_enable=Y" makes
+#                                          the parameter survive a reboot
+#
+# MTKW_ROOT prefixes every filesystem path; it is empty on a router and only
+# set by the test harness.
+
+R="${MTKW_ROOT:-}"
+DBG="$R/sys/kernel/debug"
+MODCONF="$R/etc/modules.conf"
+# Samples and caches live in a directory only root can create: unprivileged
+# daemons can write to /tmp but not to /var/run, so none of these names can
+# be planted there as a FIFO, a symlink or forged data.
+STATE="$R/var/run/mtk-wed"
+# One file per Wi-Fi sample, named by its uptime in centiseconds; readers
+# take the newest, so a slow writer can never roll the sample back.
+WIFI_SNAP="$STATE/wifi"
+WIFI_MIN_DT=2
+# Seconds the iw reads of one sample may take: its counters carry the time
+# taken before them, so a slower sample cannot be placed in time.
+WIFI_MAX_SPAN=1
+NL='
+'
+PPE_MAX_ENTRIES=1000
+
+# jesc(s): s escaped for a JSON string. It is built by concatenation only:
+# BusyBox awk versions differ in how gsub() reads backslashes in a
+# replacement, and 1.37/1.38 neither double them nor escape quotes.
+JESC_AWK='
+function jesc(s,   i, n, c, out) {
+	if (!JE_INIT) {
+		JE_INIT = 1
+		for (i = 1; i < 32; i++) JE[sprintf("%c", i)] = sprintf("\\u%04x", i)
+		JE["\t"] = "\\t"; JE["\n"] = "\\n"; JE["\r"] = "\\r"
+		JE["\\"] = "\\\\"; JE["\""] = "\\\""
+	}
+	out = ""; n = length(s)
+	for (i = 1; i <= n; i++) { c = substr(s, i, 1); out = out ((c in JE) ? JE[c] : c) }
+	return out
+}
+'
+
+json_str() {
+	# Escape a value for use inside a JSON string; lines join as \n.
+	printf '%s' "$1" | awk "$JESC_AWK"'{ printf "%s%s", (NR > 1 ? "\\n" : ""), jesc($0) }'
+}
+
+# The page polls every five seconds, so the hot paths avoid subshells and
+# helper processes: rd, ri and js return in variables and use builtins only.
+
+# rd <file>: first line of a file in $RD, empty when it cannot be read.
+rd() {
+	RD=
+	[ -r "$1" ] && IFS= read -r RD 2>/dev/null < "$1"
+	return 0
+}
+
+# ri <file> <fallback>: the file's integer value in $RI, else the fallback.
+ri() {
+	rd "$1"
+	case "$RD" in ''|*[!0-9-]*) RI=$2 ;; *) RI=$RD ;; esac
+}
+
+# js <value>: the value escaped for a JSON string in $JS; plain values skip
+# the awk process.
+js() {
+	case "$1" in
+		*[\"\\]*|*[![:print:]]*) JS=$(json_str "$1") ;;
+		*) JS=$1 ;;
+	esac
+}
+
+read_first() {
+	rd "$1"
+	printf '%s' "$RD"
+}
+
+int_or() {
+	# int_or <value> <fallback>
+	case "$1" in ''|*[!0-9-]*) printf '%s' "$2" ;; *) printf '%s' "$1" ;; esac
+}
+
+# Module arguments split and decoded like the kernel's next_arg(): spaces
+# inside double quotes do not split, quotes around a value are dropped, a
+# name matches with "-" or "_" and an argument without "=" means "1".
+# kargs(s, out) fills out[1..n] with the raw arguments; karg(a) sets KN and KV.
+KARGS_AWK='
+function kargs(s, out,   n, i, len, c, q, st) {
+	n = 0; len = length(s); i = 1
+	while (i <= len) {
+		while (i <= len && substr(s, i, 1) ~ /[ \t]/) i++
+		if (i > len) break
+		st = i; q = 0
+		if (substr(s, i, 1) == "\"") { q = 1; i++ }
+		for (; i <= len; i++) {
+			c = substr(s, i, 1)
+			if (c ~ /[ \t]/ && !q) break
+			if (c == "\"") q = !q
+		}
+		out[++n] = substr(s, st, i - st)
+	}
+	return n
+}
+function unq(v) {
+	if (substr(v, 1, 1) == "\"") { v = substr(v, 2); if (substr(v, length(v)) == "\"") v = substr(v, 1, length(v) - 1) }
+	return v
+}
+function karg(a,   e) {
+	a = unq(a); e = index(a, "=")
+	if (e) { KN = substr(a, 1, e - 1); KV = unq(substr(a, e + 1)) } else { KN = a; KV = "1" }
+	gsub(/-/, "_", KN)
+}
+'
+
+# kbool <value>: kstrtobool() as the kernel applies it to a bool module
+# parameter, into $KB as true, false or null.
+kbool() {
+	case "$1" in
+		[eEyYtT1]*|[oO][nN]*) KB=true ;;
+		[dDnNfF0]*|[oO][fF]*) KB=false ;;
+		*) KB=null ;;
+	esac
+}
+
+json_input() {
+	# json_input <json> <key>
+	printf '%s' "$1" | jsonfilter -e "@.$2" 2>/dev/null
+}
+
+# ── Board / CPU ─────────────────────────────────────────────────────────
+
+board_compatible() {
+	tr '\0' ' ' < "$R/proc/device-tree/compatible" 2>/dev/null | awk '{print $1}'
+}
+
+# The last compatible string names the SoC, e.g. "mediatek,mt7988a".
+soc_compatible() {
+	tr '\0' ' ' < "$R/proc/device-tree/compatible" 2>/dev/null | awk '{print $NF}'
+}
+
+cpu_policy() {
+	local p
+	for p in "$R"/sys/devices/system/cpu/cpufreq/policy*; do
+		[ -d "$p" ] && { printf '%s' "$p"; return; }
+	done
+}
+
+# CPU temperature in millidegrees into $RI (0 when unknown).
+cpu_temp_milli() {
+	local z
+	for z in "$R"/sys/class/thermal/thermal_zone*; do
+		rd "$z/type"
+		case "$RD" in cpu-thermal|cpu_thermal|soc-thermal|soc_thermal)
+			ri "$z/temp" 0; return ;;
+		esac
+	done
+	ri "$R/sys/class/thermal/thermal_zone0/temp" 0
+}
+
+cpu_json() {
+	local p gov govs freqs cur min max hwmax count arch temp
+	p=$(cpu_policy)
+	count=$(grep -c '^processor' "$R/proc/cpuinfo" 2>/dev/null)
+	arch=$(awk -F': *' '/^CPU part/{print $2; exit}' "$R/proc/cpuinfo" 2>/dev/null)
+	case "$arch" in
+		0xd09) arch='Cortex-A73' ;; 0xd08) arch='Cortex-A72' ;;
+		0xd03) arch='Cortex-A53' ;; 0xd05) arch='Cortex-A55' ;;
+	esac
+	cpu_temp_milli; temp=$RI
+	if [ -n "$p" ]; then
+		rd "$p/scaling_governor"; gov=$RD
+		rd "$p/scaling_available_governors"; govs=$RD
+		rd "$p/scaling_available_frequencies"; freqs=$RD
+		ri "$p/scaling_cur_freq" 0; cur=$RI
+		ri "$p/cpuinfo_min_freq" 0; min=$RI
+		ri "$p/cpuinfo_max_freq" 0; hwmax=$RI
+		ri "$p/scaling_max_freq" 0; max=$RI
+	fi
+	case "$count" in ''|*[!0-9]*) count=0 ;; esac
+	js "$arch"; arch=$JS
+	js "$gov"; gov=$JS
+	js "$govs"; govs=$JS
+	js "$freqs"; freqs=$JS
+	printf '"cpu":{"count":%s,"arch":"%s","temp_milli":%s,"cpufreq":%s,"governor":"%s","governors":"%s","frequencies":"%s","cur_freq":%s,"min_freq":%s,"hw_max_freq":%s,"max_freq":%s}' \
+		"$count" "$arch" "$temp" "$([ -n "$p" ] && echo true || echo false)" \
+		"$gov" "$govs" "$freqs" "${cur:-0}" "${min:-0}" "${hwmax:-0}" "${max:-0}"
+}
+
+# Monotonic seconds: no date process and no wall-clock/NTP jumps.
+clock_now() {
+	local rest
+	NOW=
+	[ -r "$R/proc/uptime" ] && read -r NOW rest < "$R/proc/uptime"
+	NOW=${NOW%%.*}
+	case "$NOW" in ''|*[!0-9]*) NOW=; return 1 ;; esac
+}
+
+# ppe_fresh <sources> <ttl>: the snapshot covers these tables and is younger
+# than ttl seconds at $NOW.
+ppe_fresh() {
+	local stamp generation saved
+	[ -f "$PPE_SNAPSHOT" ] || return 1
+	{ read -r stamp generation; IFS= read -r saved; } < "$PPE_SNAPSHOT"
+	case "$stamp" in ''|*[!0-9]*) return 1 ;; esac
+	[ "$saved" = "$1" ] && [ "$NOW" -ge "$stamp" ] && [ $((NOW - stamp)) -lt "$2" ]
+}
+
+# Cache raw PPE data, not a truncated result. One atomically replaced file
+# keeps every engine in the same generation; readers pin its inode on fd 3.
+# One caller collects at a time; the others wait and take its snapshot, so
+# concurrent requests cannot multiply the copies held in RAM.
+ppe_snapshot() {
+	local sources="$1" ttl="$2"
+	PPE_SNAPSHOT="$STATE/ppe.snapshot"
+	clock_now || return 1
+	ppe_fresh "$sources" "$ttl" && return 0
+	# Read the clock again once the lock is held: a caller that waited
+	# judges, and stamps, by the time it actually samples.
+	{ flock 4 && clock_now && { ppe_fresh "$sources" "$ttl" || ppe_collect "$sources"; }; } 4> "$STATE/ppe.lock"
+}
+
+ppe_collect() {
+	local tmp f id
+	tmp=$(mktemp "$PPE_SNAPSHOT.XXXXXX") || return 1
+	printf '%s %s\n%s\n' "$NOW" "${tmp##*/}" "$1" > "$tmp" || { rm -f "$tmp"; return 1; }
+	for f in $1; do
+		id=${f%/entries}; id=${id##*/ppe}
+		printf '#PPE %s\n' "$id" >> "$tmp" || { rm -f "$tmp"; return 1; }
+		if ! cat "$f" >> "$tmp"; then rm -f "$tmp"; return 1; fi
+	done
+	mv -f "$tmp" "$PPE_SNAPSHOT" || { rm -f "$tmp"; return 1; }
+}
+
+ppe_reply() {
+	if [ "$2" = 1 ]; then
+		printf '%s,"sample_age":%s}' "${1%\}}" "$3"
+	else
+		printf '%s' "$1"
+	fi
+}
+
+# ── PPE ─────────────────────────────────────────────────────────────────
+
+# One JSON object per PPE: entry counts by state and by type. The FOE table
+# only prints valid entries, so counting lines is enough.
+ppe_json() {
+	local d id first=1 out=""
+	for d in "$DBG"/ppe[0-9]*; do
+		[ -r "$d/entries" ] || continue
+		id=${d##*/ppe}
+		[ $first -eq 1 ] || out="$out,"
+		first=0
+		out="$out$(awk -v id="$id" '
+			{ total++; s[$2]++; t=$3; if ($4 != "" && $4 !~ /=/) t=t" "$4; ty[t]++ }
+			END {
+				printf "{\"id\":%d,\"total\":%d,\"bound\":%d,\"unbound\":%d,\"fin\":%d,\"ipv4\":%d,\"ipv6\":%d}",
+					id, total, s["BND"], s["UNB"], s["FIN"],
+					ty["IPv4 5T"]+ty["IPv4 3T"]+ty["DS-LITE"],
+					ty["IPv6 5T"]+ty["IPv6 3T"]+ty["6RD"]
+			}' "$d/entries" 2>/dev/null)"
+	done
+	printf '"ppe":[%s]' "$out"
+}
+
+# Count every FOE entry once; serialize only the requested page. Calls without
+# a page retain the original PPE_MAX_ENTRIES cap for existing clients.
+# Line format (mtk_ppe_debugfs.c):
+#   %05x <state> <type 1-2 words> orig=<a>-><b> [new=<a>-><b>] eth=<m>-><m>
+#   etype=%04x vlan=%d,%d ib1=%08x ib2=%08x packets=%llu bytes=%llu
+get_ppe_entries() {
+	local d id page= state= type_filter= ppe_filter= result args files=""
+	local snapshot=0 ttl=20 refresh= stamp generation saved key cached_key cached_json tmp age=0
+	local page_kind= state_kind= type_kind= ppe_kind= refresh_kind=
+	local query_cache="$STATE/ppe.query" meta_prefix= meta_suffix=
+	# jsonfilter quotes exported strings for shell evaluation. Names and
+	# expressions are fixed here; user input is only parsed as JSON data.
+	args=$(jsonfilter -s "$1" -e 'page=@.page' -e 'state=@.state' \
+		-e 'type_filter=@.type' -e 'ppe_filter=@.ppe' -e 'refresh=@.refresh' \
+		-t 'page_kind=@.page' -t 'state_kind=@.state' -t 'type_kind=@.type' \
+		-t 'ppe_kind=@.ppe' -t 'refresh_kind=@.refresh' 2>/dev/null)
+	eval "$args"
+	case "$page_kind" in ''|null|string|int) ;; *) printf '{"error":"invalid page"}'; return ;; esac
+	case "$state_kind" in ''|null|string) ;; *) printf '{"error":"invalid state"}'; return ;; esac
+	case "$type_kind" in ''|null|string) ;; *) printf '{"error":"invalid type"}'; return ;; esac
+	case "$ppe_kind" in ''|null|string|int) ;; *) printf '{"error":"invalid ppe"}'; return ;; esac
+	# No page keeps the original capped response for existing RPC clients.
+	case "$page" in
+		'') page=-1 ;;
+		*[!0-9]*|???????*) printf '{"error":"invalid page"}'; return ;;
+	esac
+	case "$state" in ''|BND|UNB|FIN) ;; *) printf '{"error":"invalid state"}'; return ;; esac
+	case "$type_filter" in ''|IPv4|IPv6|DS-LITE|6RD) ;; *) printf '{"error":"invalid type"}'; return ;; esac
+	case "$ppe_filter" in *[!0-9]*|???????*) printf '{"error":"invalid ppe"}'; return ;; esac
+	for d in "$DBG"/ppe[0-9]*; do
+		[ -r "$d/entries" ] && files="$files $d/entries"
+	done
+	if [ -z "$files" ]; then
+		printf '{"available":false,"entries":[],"total":0,"matched":0,"ppe":[]}'
+		return
+	fi
+	if [ "$page" -ge 0 ]; then
+		# Live polls come every 20 s from each open page. A snapshot younger
+		# than 18 s is shared between pages, while one page, even with a
+		# second of timer or request jitter, still reads fresh tables.
+		case "$refresh_kind:$refresh" in boolean:1|string:true) ttl=18 ;; esac
+		if ! ppe_snapshot "$files" "$ttl"; then
+			printf '{"available":false,"entries":[],"ppe":[],"error":"cannot snapshot PPE tables"}'
+			return
+		fi
+		command exec 3< "$PPE_SNAPSHOT" 2>/dev/null || {
+			printf '{"available":false,"entries":[],"ppe":[],"error":"cannot read the PPE snapshot"}'
+			return
+		}
+		read -r stamp generation <&3
+		IFS= read -r saved <&3
+		age=$((NOW - stamp)); [ "$age" -ge 0 ] || age=0
+		key="$generation:$page:$state:$type_filter:$ppe_filter"
+		if [ -r "$query_cache" ]; then
+			{ IFS= read -r cached_key; IFS= read -r cached_json; } < "$query_cache"
+			if [ "$cached_key" = "$key" ]; then
+				case "$cached_json" in
+					\{*\}) exec 3<&-; ppe_reply "$cached_json" 1 "$age"; return ;;
+				esac
+			fi
+			case "$cached_key" in
+				"$generation":*)
+					# The summary is independent of filter/page. Its numeric-only
+					# prefix and PPE suffix can be reused without parsing JSON.
+					meta_prefix=${cached_json%%,\"truncated\":*}
+					meta_suffix=${cached_json##*,\"ppe\":}
+					[ "$meta_prefix" != "$cached_json" ] && [ "$meta_suffix" != "$cached_json" ] || { meta_prefix=; meta_suffix=; }
+					;;
+			esac
+
+		fi
+		files=/proc/self/fd/3
+		snapshot=1
+	fi
+	# shellcheck disable=SC2086
+	if result=$(awk -v max="$PPE_MAX_ENTRIES" -v page="$page" -v state="$state" \
+		-v type_filter="$type_filter" -v ppe_filter="$ppe_filter" -v snapshot="$snapshot" \
+		-v meta_prefix="$meta_prefix" -v meta_suffix="$meta_suffix" "$JESC_AWK"'
+		BEGIN {
+			have_meta = meta_prefix != "" && meta_suffix != ""
+			unfiltered = have_meta && state == "" && type_filter == "" && ppe_filter == ""
+			if (unfiltered) {
+				matched = meta_prefix; sub(/^.*"total":/, "", matched); sub(/,.*/, "", matched); matched += 0
+			}
+			if (page >= 0) max = 50
+			for (i = 1; !snapshot && i < ARGC; i++) {
+				id = ARGV[i]; sub(/\/entries$/, "", id); sub(/.*\/ppe/, "", id)
+				ids[++idcount] = id
+			}
+		}
+		function esc(s) { return (index(s, "\\") || index(s, "\"")) ? jesc(s) : s }
+		function field(k) { return values[k] }
+		function decode_fields(   i, eq, key) {
+			delete values
+			for (i = 1; i <= NF; i++) {
+				eq = index($i, "="); if (!eq) continue
+				key = substr($i, 1, eq - 1)
+				if (!(key in values)) values[key] = substr($i, eq + 1)
+			}
+		}
+		function finish_engine() {
+			if (!active || have_meta) return
+			pt[ppe] = etotal; pb[ppe] = ebound; pu[ppe] = eunbound
+			pf[ppe] = efin; pv4[ppe] = ev4; pv6[ppe] = ev6
+		}
+		function start_engine(id) {
+			finish_engine()
+			ppe = id; active = 1
+			etotal = ebound = eunbound = efin = ev4 = ev6 = 0
+		}
+		snapshot && FNR <= 2 { next }
+		snapshot && $1 == "#PPE" { start_engine($2); ids[++idcount] = ppe; next }
+		!snapshot && FNR == 1 { engine = FILENAME; sub(/\/entries$/, "", engine); sub(/.*\/ppe/, "", engine); start_engine(engine) }
+		{
+			if (unfiltered) {
+				if (n >= max) exit
+				if (++seen <= page * max) next
+			}
+			if (!have_meta) {
+				etotal++
+				if ($2 == "BND") ebound++; else if ($2 == "UNB") eunbound++; else if ($2 == "FIN") efin++
+				if ($3 ~ /^IPv4|^DS-LITE/) ev4++; else if ($3 ~ /^IPv6|^6RD/) ev6++
+			}
+			if (!unfiltered) {
+				if ((state != "" && $2 != state) ||
+				    (type_filter != "" && index($3, type_filter) != 1) ||
+				    (ppe_filter != "" && ppe + 0 != ppe_filter + 0)) next
+				matched++
+				if (n >= max || (page >= 0 && matched <= page * max)) next
+			}
+			type = $3; if ($4 !~ /=/) type = type " " $4
+			decode_fields()
+			vlan = field("vlan"); split(vlan, vl, ",")
+			v = (vl[1] + 0) ? vl[1] : "-"
+			if ((vl[2] + 0)) v = v "," vl[2]
+			pk = field("packets"); by = field("bytes")
+			row = sprintf("{\"ppe\":%d,\"index\":\"%s\",\"state\":\"%s\",\"type\":\"%s\",\"orig\":\"%s\",\"new\":\"%s\",\"eth\":\"%s\",\"vlan\":\"%s\",\"packets\":%s,\"bytes\":%s}",
+				ppe, esc($1), esc($2), esc(type), esc(field("orig")), esc(field("new")), esc(field("eth")),
+				esc(v), (pk == "" ? "null" : pk + 0), (by == "" ? "null" : by + 0))
+			out = out (n ? "," : "") row
+			n++
+		}
+		END {
+			finish_engine()
+			if (have_meta) {
+				printf "%s,\"truncated\":false,\"matched\":%d,\"page\":%d,\"entries\":[%s],\"ppe\":%s", meta_prefix, matched, page, out, meta_suffix
+				exit
+			}
+			# Derive global counts once, instead of updating them for every row.
+			for (i = 1; i <= idcount; i++) {
+				id = ids[i]; total += pt[id]; bound += pb[id]; unbound += pu[id]
+				v4 += pv4[id]; v6 += pv6[id]
+			}
+			printf "{\"available\":true,\"total\":%d,\"bound\":%d,\"unbound\":%d,\"ipv4\":%d,\"ipv6\":%d,\"truncated\":%s,\"matched\":%d,\"page\":%d,\"entries\":[%s],\"ppe\":[",
+				total, bound, unbound, v4, v6, (page < 0 && matched > n ? "true" : "false"), matched, page, out
+			for (i = 1; i <= idcount; i++) {
+				id = ids[i]
+				printf "%s{\"id\":%d,\"total\":%d,\"bound\":%d,\"unbound\":%d,\"fin\":%d,\"ipv4\":%d,\"ipv6\":%d}",
+					(i > 1 ? "," : ""), id, pt[id], pb[id], pu[id], pf[id], pv4[id], pv6[id]
+			}
+			printf "]}"
+		}' $files 2>/dev/null); then
+		exec 3<&-
+		if [ "$snapshot" = 1 ]; then
+			tmp=$(mktemp "$query_cache.XXXXXX")
+			if [ -n "$tmp" ]; then
+				printf '%s\n%s\n' "$key" "$result" > "$tmp" &&
+					mv -f "$tmp" "$query_cache" || rm -f "$tmp"
+			fi
+		fi
+		ppe_reply "$result" "$snapshot" "$age"
+	else
+		exec 3<&-
+		printf '{"available":false,"entries":[],"ppe":[],"error":"cannot read PPE tables"}'
+	fi
+}
+
+# ── WED ─────────────────────────────────────────────────────────────────
+
+WO_CACHE="$STATE/wo-firmware"
+
+# The WO firmware version is only logged at boot; keep it once seen, since the
+# kernel log ring buffer drops it on a long-running router.
+wo_firmware() {
+	local v cached stamp tmp
+	clock_now
+	if [ -r "$WO_CACHE" ]; then
+		{ IFS= read -r cached; read -r stamp; } < "$WO_CACHE"
+		case "$stamp" in
+			''|*[!0-9]*) ;;
+			*) if [ -n "$NOW" ] && [ "$NOW" -ge "$stamp" ] && [ $((NOW - stamp)) -lt 60 ]; then
+				printf '%s' "$cached"; return
+			fi ;;
+		esac
+	fi
+	v=$(dmesg 2>/dev/null | sed -n 's/.*MTK WED WO Firmware Version: \([^,]*\), Build Time: \(.*\)/\1|\2/p' | tail -n 1)
+	[ -n "$v" ] || v=$cached
+	if [ -n "$NOW" ]; then
+		tmp=$(mktemp "$WO_CACHE.XXXXXX")
+		if [ -n "$tmp" ]; then
+			printf '%s\n%s\n' "$v" "$NOW" > "$tmp" && mv -f "$tmp" "$WO_CACHE" || rm -f "$tmp"
+		fi
+	fi
+	printf '%s' "$v"
+}
+
+wed_module() {
+	# The mt76 driver bound to a radio decides. kmodloader loads every
+	# installed module, so a loaded module alone proves nothing.
+	local p m
+	for p in "$R"/sys/class/ieee80211/*/device/driver/module; do
+		m=$(readlink "$p" 2>/dev/null); m=${m##*/}
+		case "$m" in mt7915e|mt7996e) printf '%s' "$m"; return ;; esac
+	done
+	# No radio yet: MT7981/MT7986 carry a built-in WMAC driven by mt7915e,
+	# MT7987/MT7988 boards use mt7996e PCIe cards.
+	case "$(soc_compatible)" in
+		*mt7981*|*mt7986*) printf 'mt7915e' ;;
+		*) printf 'mt7996e' ;;
+	esac
+}
+
+wed_param_json() {
+	local mod live conf
+	mod=$(wed_module)
+	rd "$R/sys/module/$mod/parameters/wed_enable"; kbool "$RD"; live=$KB
+	# Read modules.conf the way kmodloader does: drop everything after "#",
+	# join the options lines of a module in order; the last value wins. As
+	# in the kernel, "-" and "_" match in the name and a bare name sets it.
+	conf=$(awk -v mod="$mod" "$KARGS_AWK"'
+		{ sub(/#.*/, "") }
+		$1 == "options" && $2 == mod {
+			line = $0; sub(/^[ \t]*options[ \t]+[^ \t]+/, "", line)
+			n = kargs(line, t)
+			for (j = 1; j <= n; j++) { karg(t[j]); if (KN == "wed_enable") { v = KV; set = 1 } }
+		}
+		END { if (set) print "v" v }' "$MODCONF" 2>/dev/null)
+	if [ -n "$conf" ]; then kbool "${conf#v}"; conf=$KB; else conf=null; fi
+	printf '"wed_param":{"module":"%s","active":%s,"configured":%s}' "$mod" "$live" "$conf"
+}
+
+wed_json() {
+	local d id ver attached fw out="" first=1
+	fw=$(wo_firmware)
+	for d in "$DBG"/wed[0-9]*; do
+		[ -d "$d" ] || continue
+		id=${d##*/wed}
+		ver=1
+		[ -e "$d/rxinfo" ] && ver=2
+		[ -e "$d/rro" ] && ver=3
+		if [ -s "$d/txinfo" ] || [ -n "$(head -c 1 "$d/txinfo" 2>/dev/null)" ]; then
+			attached=true
+		else
+			attached=false
+		fi
+		[ $first -eq 1 ] || out="$out,"
+		first=0
+		out="$out{\"id\":$id,\"version\":$ver,\"attached\":$attached}"
+	done
+	printf '"wed":[%s],"wo_firmware":"%s","wo_build":"%s"' "$out" \
+		"$(json_str "${fw%%|*}")" "$(json_str "$(printf '%s' "$fw" | sed -n 's/.*|//p')")"
+}
+
+# ── Flow offload ────────────────────────────────────────────────────────
+
+# fw_bool <value>: true where firewall4 reads the option as true
+# (parse_bool in fw4.uc); anything else is false or falls back to off.
+fw_bool() {
+	case "$1" in 1|on|true|yes) return 0 ;; esac
+	return 1
+}
+
+flow_json() {
+	local fo foh sw=false hw=false
+	fo=$(uci -q get firewall.@defaults[0].flow_offloading)
+	foh=$(uci -q get firewall.@defaults[0].flow_offloading_hw)
+	fw_bool "$fo" && { sw=true; fw_bool "$foh" && hw=true; }
+	printf '"flow_offload":{"software":%s,"hardware":%s}' "$sw" "$hw"
+}
+
+get_status() {
+	local skip_ppe
+	skip_ppe=$(json_input "$1" skip_ppe)
+	rd "$R/tmp/sysinfo/model"; js "$RD"
+	printf '{"model":"%s",' "$JS"
+	js "$(board_compatible)"; printf '"compatible":"%s",' "$JS"
+	js "$(soc_compatible)"; printf '"soc":"%s",' "$JS"
+	cpu_json; printf ','
+	# The page gets these counters from the same snapshot as its flow rows.
+	if [ "$skip_ppe" = true ]; then printf '"ppe":[]'; else ppe_json; fi
+	printf ','; wed_json
+	printf ','; wed_param_json
+	printf ','; flow_json
+	printf '}'
+}
+
+# ── Ports ───────────────────────────────────────────────────────────────
+
+# GDM index of an mtk_soc_eth netdev: mtk_add_mac() points the netdev's
+# of_node at the mac@N child, and N is the GDM id.
+gdm_of() {
+	# gdm_of <sysfs dir>: the GDM index in $GDM, empty for other netdevs.
+	local l
+	GDM=
+	l=$(readlink "$1/of_node" 2>/dev/null)
+	case "$l" in *mac@[0-9]*) l=${l##*mac@}; GDM=${l%%[!0-9]*} ;; esac
+}
+
+# A DSA user port: the kernel tags it DEVTYPE=dsa (SET_NETDEV_DEVTYPE in
+# net/dsa/user.c) and its iflink is the conduit's ifindex. DSA has no
+# phys_port_name on current kernels, so that attribute cannot be used.
+is_dsa_user() {
+	# is_dsa_user <sysfs dir> <iflink>
+	local c l
+	if [ -r "$1/uevent" ]; then
+		while IFS= read -r l; do
+			[ "$l" = DEVTYPE=dsa ] && return 0
+		done < "$1/uevent"
+	fi
+	rd "$1/ifindex"
+	[ -n "$2" ] && [ "$2" != "$RD" ] || return 1
+	for c in "$R"/sys/class/net/*; do
+		rd "$c/ifindex"
+		[ "$RD" = "$2" ] && [ -r "$c/dsa/tagging" ] && return 0
+	done
+	return 1
+}
+
+# The physical port under a WAN device: a VLAN (eth2.35, or a named 8021q
+# device) links to its parent as lower_<dev> in sysfs.
+wan_ports() {
+	# wan_ports <netdev> [depth]: append the ports under it to $WP. VLANs,
+	# bridges and bonds link their members as lower_<dev>; follow them down
+	# to netdevs that are ports themselves (a device or of_node). DSA user
+	# ports stop there, though they list their conduit as a lower device.
+	local d="$1" depth="${2:-0}" l found=0
+	[ -n "$d" ] && [ "$depth" -lt 6 ] || return 0
+	if [ ! -d "$R/sys/class/net/$d" ]; then
+		# Not created yet: a VLAN name still points at its port.
+		case "$d" in
+			*.*) wan_ports "${d%.*}" $((depth + 1)) ;;
+			*) WP="$WP $d " ;;
+		esac
+		return 0
+	fi
+	if [ -e "$R/sys/class/net/$d/device" ] || [ -e "$R/sys/class/net/$d/of_node" ]; then
+		WP="$WP $d "
+		return 0
+	fi
+	for l in "$R/sys/class/net/$d"/lower_*; do
+		[ -e "$l" ] || continue
+		found=1
+		wan_ports "${l##*/lower_}" $((depth + 1))
+	done
+	[ $found = 1 ] || WP="$WP $d "
+	return 0
+}
+
+# Highest speed a port supports, for a label that does not change with the
+# link: ethtool's supported link modes when installed, otherwise the DT
+# phy-mode. "internal" is the 2.5G PHY on an MT7987/MT7988 GMAC and a 1G PHY
+# on a switch port.
+port_max_mbps_probe() {
+	# port_max_mbps <sysfs dir> <kind>: the speed in $PM
+	local m mode=
+	if command -v ethtool >/dev/null 2>&1; then
+		m=$(ethtool "${1##*/}" 2>/dev/null | awk '
+			/Supported link modes:/ { f = 1; sub(/.*:/, "") }
+			f && /:/ { f = 0 }
+			f { for (i = 1; i <= NF; i++) if ($i ~ /^[0-9]+base/) { v = $i + 0; if (v > m) m = v } }
+			END { print m + 0 }')
+		[ "${m:-0}" -gt 0 ] && { PM=$m; return; }
+	fi
+	# A DT string property ends in NUL; read drops it.
+	for m in phy-mode phy-connection-type; do
+		[ -r "$1/of_node/$m" ] && { rd "$1/of_node/$m"; mode=$RD; break; }
+	done
+	case "$mode" in
+		usxgmii|10gbase-r|10gbase-kr|xaui|rxaui) m=10000 ;;
+		5gbase-r) m=5000 ;;
+		2500base-x) m=2500 ;;
+		internal) if [ "$2" = gdm ]; then m=2500; else m=1000; fi ;;
+		sgmii|qsgmii|1000base-x|1000base-kx|gmii|rgmii*|trgmii) m=1000 ;;
+		'') if [ "$2" = gsw ]; then m=1000; else m=null; fi ;;
+		*) m=null ;;
+	esac
+	PM=$m
+}
+
+port_max_mbps() {
+	local identity stamp cached_id cached_kind cached_speed tmp
+	local cache="$STATE/port-${1##*/}.max"
+	rd "$1/ifindex"; identity=$RD
+	clock_now
+	if [ -n "$NOW" ] && [ -n "$identity" ] && [ -r "$cache" ]; then
+		read -r stamp cached_id cached_kind cached_speed < "$cache"
+		case "$stamp:$cached_speed" in
+			*[!0-9:]*|:*|*:) ;;
+			*) if [ "$cached_id" = "$identity" ] && [ "$cached_kind" = "$2" ] &&
+				[ "$NOW" -ge "$stamp" ] && [ $((NOW - stamp)) -lt 60 ]; then
+				PM=$cached_speed; return
+			fi ;;
+		esac
+	fi
+	port_max_mbps_probe "$1" "$2"
+	# Unknown capabilities are retried, not pinned during device startup.
+	case "$PM" in ''|*[!0-9]*) return ;; esac
+	[ -n "$NOW" ] && [ -n "$identity" ] || return 0
+	tmp=$(mktemp "$cache.XXXXXX") || return 0
+	printf '%s %s %s %s\n' "$NOW" "$identity" "$2" "$PM" > "$tmp" &&
+		mv -f "$tmp" "$cache" || rm -f "$tmp"
+}
+
+port_json() {
+	# port_json <sysfs dir> <role> <kind> <gdm> <conduit>: the object in $PJ
+	local n="$1" speed carrier name conduit duplex k stats=
+	ri "$n/carrier" null; carrier=$RI
+	ri "$n/speed" null; speed=$RI
+	[ "$carrier" = 1 ] || speed=null
+	js "${n##*/}"; name=$JS
+	js "$5"; conduit=$JS
+	rd "$n/duplex"; js "$RD"; duplex=$JS
+	port_max_mbps "$n" "$3"
+	for k in rx_bytes tx_bytes rx_packets tx_packets rx_errors tx_errors rx_dropped tx_dropped; do
+		ri "$n/statistics/$k" null
+		stats="$stats,\"$k\":$RI"
+	done
+	PJ="{\"netdev\":\"$name\",\"role\":\"$2\",\"kind\":\"$3\",\"gdm\":${4:-null},\"conduit\":\"$conduit\",\"carrier\":$carrier,\"speed_mbps\":$speed,\"max_mbps\":$PM,\"duplex\":\"$duplex\"$stats}"
+}
+
+get_ports() {
+	local wan n i c drv gdm role kind conduit out="" first=1 iflink
+	WP=
+	wan_ports "$(uci -q get network.wan.device)"
+	wan_ports "$(uci -q get network.wan6.device)"
+	wan=$WP
+	for n in "$R"/sys/class/net/*; do
+		i=${n##*/}
+		[ -e "$n/device" ] || [ -e "$n/of_node" ] || continue
+		gdm=""; conduit=""
+		rd "$n/iflink"; iflink=$RD
+		if is_dsa_user "$n" "$iflink"; then
+			kind=gsw
+			for c in "$R"/sys/class/net/*; do
+				rd "$c/ifindex"
+				[ "$RD" = "$iflink" ] && { conduit=${c##*/}; gdm_of "$c"; gdm=$GDM; break; }
+			done
+		else
+			gdm_of "$n"; gdm=$GDM
+			if [ -z "$gdm" ]; then
+				drv=$(readlink "$n/device/driver" 2>/dev/null)
+				[ "${drv##*/}" = mtk_soc_eth ] || continue
+			fi
+			kind=gdm
+		fi
+		case "$wan" in *" $i "*) role=wan ;; *) role=lan ;; esac
+		# A DSA conduit only feeds the switch; it is not a user-facing port.
+		[ "$kind" = gdm ] && [ -r "$n/dsa/tagging" ] && role=conduit
+		[ $first -eq 1 ] || out="$out,"
+		first=0
+		port_json "$n" "$role" "$kind" "$gdm" "$conduit"
+		out="$out$PJ"
+	done
+	printf '{"compatible":"%s","model":"%s","ports":[%s]}' \
+		"$(json_str "$(board_compatible)")" "$(json_str "$(read_first "$R/tmp/sysinfo/model")")" "$out"
+}
+
+# GDM MAC counters from ethtool -S (mtk_ethtool_stats[] in mtk_eth_soc.c).
+get_mac_stats() {
+	local n i gdm out="" first=1
+	if ! command -v ethtool >/dev/null 2>&1; then
+		printf '{"available":false,"reason":"ethtool_missing","macs":[]}'
+		return
+	fi
+	for n in "$R"/sys/class/net/*; do
+		i=${n##*/}
+		gdm_of "$n"; gdm=$GDM
+		[ -n "$gdm" ] || continue
+		[ $first -eq 1 ] || out="$out,"
+		first=0
+		# The name is escaped here: awk -v would also read its backslashes.
+		js "$i"
+		out="$out{\"netdev\":\"$JS\",\"gdm\":$gdm$(ethtool -S "$i" 2>/dev/null | awk '
+			BEGIN { split("tx_bytes tx_packets tx_skip tx_collisions rx_bytes rx_packets rx_overflow rx_fcs_errors rx_short_errors rx_long_errors rx_checksum_errors rx_flow_control_packets", k, " ") }
+			{ gsub(/^[ \t]+|:$/, "", $1); key = $1; sub(/:$/, "", key); v[key] = $2 }
+			END { for (j = 1; j in k; j++) printf ",\"%s\":%s", k[j], (k[j] in v ? v[k[j]] + 0 : "null") }')}"
+	done
+	printf '{"available":true,"macs":[%s]}' "$out"
+}
+
+# ── Wi-Fi ───────────────────────────────────────────────────────────────
+# Per-band client health from iw, same computation as luci-app-airoha-npu.
+
+get_wifi_stats() {
+	local iface band freq d now end rest late rates snap list info prev f try body old partial=0 hw cur=""
+	local dump0="" dump1="" dump2="" if0="" if1="" if2=""
+	hw=$([ -n "$(ls "$R"/sys/class/ieee80211 2>/dev/null)" ] && echo true || echo false)
+	if ! command -v iw >/dev/null 2>&1; then
+		printf '{"available":false,"has_wifi":%s,"bands":[]}' "$hw"
+		return
+	fi
+	read -r now rest < "$R/proc/uptime" 2>/dev/null
+	list=$(iw dev 2>/dev/null) ||
+		{ printf '{"available":false,"has_wifi":%s,"error":"iw dev failed","bands":[]}' "$hw"; return; }
+	# "Interface" and "type" are the first words of their lines; the SSID
+	# line in between may contain the same words. AP/VLAN carries the WDS
+	# stations of an AP.
+	for iface in $(printf '%s\n' "$list" | awk '
+		$1 == "Interface" { i = $2; next }
+		$1 == "type" {
+			if (($2 == "AP" || $2 == "AP/VLAN") && i != "" && !(i in seen)) { seen[i]; print i }
+			i = ""
+		}'); do
+		# A failed query leaves the sample incomplete: it is reported and
+		# never becomes the rate baseline.
+		info=$(iw dev "$iface" info 2>/dev/null) || { partial=1; continue; }
+		d=$(iw dev "$iface" station dump 2>/dev/null) || { partial=1; continue; }
+		freq=$(printf '%s\n' "$info" | awk '
+			# "channel 36 (5180 MHz)", also on MLO "link 0:" lines; the SSID
+			# line is skipped, since an SSID may contain the same words.
+			$1 == "ssid" { next }
+			{ for (i = 1; i + 2 <= NF; i++) if ($i == "channel") { v = $(i + 2); sub(/^\(/, "", v); if (v ~ /^[0-9]+$/ && v + 0 > 1000) { print v + 0; exit } } }')
+		case "$freq" in
+			''|*[!0-9]*)
+				# No channel: an AP that is not running is fine, but clients
+				# that cannot be placed on a band make the sample incomplete.
+				case "$d" in *Station*) partial=1 ;; esac
+				continue
+				;;
+		esac
+		if [ "$freq" -ge 5925 ]; then band=2; elif [ "$freq" -ge 5000 ]; then band=1; else band=0; fi
+		# Per-client TX bytes for the rate; "connected time" tells a client
+		# that reconnected (counters restarted) from one that stayed.
+		cur="$cur$(printf '%s\n' "$d" | awk -v b="$band" -v i="$iface" '
+			/^Station / { if (mac != "") print "C", b, i, mac, tx, ct; mac = $2; tx = ""; ct = "" }
+			/tx bytes:/ { tx = $NF }
+			/connected time:/ { ct = $3 }
+			END { if (mac != "") print "C", b, i, mac, tx, ct }')$NL"
+		case "$band" in
+			0) if0="$if0 $iface"; dump0="$dump0
+$d" ;;
+			1) if1="$if1 $iface"; dump1="$dump1
+$d" ;;
+			2) if2="$if2 $iface"; dump2="$dump2
+$d" ;;
+		esac
+	done
+
+	read -r end rest < "$R/proc/uptime" 2>/dev/null
+	# The sample (time, rates, per-client TX bytes) is shared by every open
+	# page. A rate adds up the growth of clients present in both samples, so
+	# clients leaving or joining do not swing it. A sample taken less than
+	# WIFI_MIN_DT after the newest one, older than it, incomplete or read
+	# over more than WIFI_MAX_SPAN returns the stored rates and is not kept.
+	prev=
+	for try in 1 2 3; do
+		# A newer writer may prune the file just picked; pick again.
+		f=
+		for prev in "$WIFI_SNAP"/[0-9]*; do [ -f "$prev" ] && f=$prev; done
+		prev=
+		[ -n "$f" ] || break
+		prev=$(cat "$f" 2>/dev/null) && [ -n "$prev" ] && break
+		prev=
+	done
+	snap=$(printf '%s\n%s' "$prev" "$cur" | awk -v now="${now:-0}" -v end="${end:-${now:-0}}" -v span="$WIFI_MAX_SPAN" \
+		-v min="$WIFI_MIN_DT" -v partial="$partial" '
+		# T <start> <rates> <end>: counters were read between start and end
+		$1 == "T" { pt = $2; pr[0] = $3; pr[1] = $4; pr[2] = $5; pe = ($6 != "" ? $6 : $2); next }
+		$1 == "S" { ptx[$3 " " $4] = $5; next }
+		$1 == "C" && $5 != "" { k = $3 " " $4; ctx[k] = $5; cb[k] = $2; cct[k] = $6; next }
+		END {
+			late = end - now > span
+			r[0] = r[1] = r[2] = "0.0"; save = !partial && !late
+			if (pt > 0) {
+				dt = now - pt
+				if (partial || late || dt < min) {
+					save = 0; r[0] = pr[0]; r[1] = pr[1]; r[2] = pr[2]
+				} else {
+					# The two reads of a client lie at least gap apart, and
+					# "connected time" is whole seconds: only a session a
+					# full second shorter than gap surely began after the
+					# last read (a reconnect). Counting an unsure one cannot
+					# overstate the rate, its counter restarted.
+					gap = now - pe
+					for (k in ctx) {
+						if (!(k in ptx) || (cct[k] != "" && cct[k] + 1 <= gap)) continue
+						d = ctx[k] - ptx[k]
+						if (d > 0) s[cb[k]] += d
+					}
+					for (b = 0; b < 3; b++) r[b] = sprintf("%.1f", s[b] / dt / 125000)
+				}
+			}
+			print r[0], r[1], r[2], late
+			if (save) {
+				printf "%012.0f\n", now * 100
+				printf "T %s %s %s %s %s\n", now, r[0], r[1], r[2], end
+				for (k in ctx) printf "S %s %s %s\n", cb[k], k, ctx[k]
+			}
+		}')
+	rates=${snap%%"$NL"*}
+	case "$snap" in
+		*"$NL"*)
+			body=${snap#*"$NL"}
+			f=${body%%"$NL"*}
+			body=${body#*"$NL"}
+			mkdir -p "$WIFI_SNAP" 2>/dev/null
+			if printf '%s\n' "$body" 2>/dev/null > "$WIFI_SNAP/.$$" &&
+				mv -f "$WIFI_SNAP/.$$" "$WIFI_SNAP/$f" 2>/dev/null; then
+				# Keep the three newest: a reader that picked one a moment
+				# ago can still open it.
+				set -- "$WIFI_SNAP"/[0-9]*
+				old=''
+				while [ $# -gt 3 ]; do old="$old $1"; shift; done
+				# shellcheck disable=SC2086
+				[ -z "$old" ] || rm -f $old
+			else
+				# No stored sample means no baseline for the next rate.
+				rm -f "$WIFI_SNAP/.$$"
+				partial=1
+			fi
+			;;
+	esac
+
+	local out="" dump ifs stats mbps rate0 rate1 rate2
+	read -r rate0 rate1 rate2 late <<EOF
+$rates
+EOF
+	# A sample read too slowly is reported like a partial one.
+	[ "$late" = 1 ] && partial=1
+	for band in 0 1 2; do
+		case "$band" in
+			0) ifs="$if0"; dump="$dump0" ;;
+			1) ifs="$if1"; dump="$dump1" ;;
+			2) ifs="$if2"; dump="$dump2" ;;
+		esac
+		[ -n "$ifs" ] || continue
+		case "$band" in 0) mbps=$rate0 ;; 1) mbps=$rate1 ;; 2) mbps=$rate2 ;; esac
+		stats=$(printf '%s\n' "$dump" | awk '
+			/^Station / { st++ }
+			/tx packets:/ { pk += $3 }
+			/tx retries:/ { rt += $3 }
+			/tx failed:/ { fl += $3 }
+			/^[ \t]*tx bitrate:/ { v = $3 + 0; if (v > 0) { phy += v; pn++ } }
+			/expected throughput:/ { v = $3 + 0; if (v > 0) { ex += v; en++ } }
+			/^[ \t]*signal avg:/ { for (i = 1; i <= NF; i++) if ($i ~ /^-[0-9]+$/) { s = $i + 0; ss += s; sn++; if (sn == 1 || s < mn) mn = s; break } }
+			END {
+				ap = pn ? phy / pn : 0; ae = en ? ex / en : 0
+				printf "\"stations\":%d,\"tx_packets\":%.0f,\"tx_retries\":%.0f,\"tx_failed\":%.0f,\"avg_phy_rate\":%.1f,\"avg_exp_throughput\":%.1f,\"airtime_efficiency\":%d,\"avg_signal\":%d,\"min_signal\":%d",
+					st, pk, rt, fl, ap, ae, (ap > 0 ? int(ae / ap * 100) : 0), (sn ? int(ss / sn) : 0), mn
+			}')
+		[ -n "$out" ] && out="$out,"
+		js "${ifs# }"
+		out="$out{\"band\":$band,\"interfaces\":\"$JS\",$stats,\"tx_mbps\":${mbps:-0}}"
+	done
+	printf '{"available":true,"has_wifi":true,"complete":%s,"bands":[%s]}' \
+		"$([ $partial = 0 ] && echo true || echo false)" "$out"
+}
+
+# ── Setters ─────────────────────────────────────────────────────────────
+
+# Seconds a save waits for another one to finish.
+SETTINGS_LOCK_WAIT=10
+
+# locked <setter> <input>: run setters one at a time, from their checks to
+# the commit, so two pages saving at once cannot leave the applied settings
+# from one request and the saved ones from the other. The lock is on fd 4.
+locked() {
+	local i=0 rc
+	{
+		while :; do
+			flock -n 4 && break
+			rc=$?
+			[ $rc = 1 ] || { printf '{"error":"cannot lock the settings"}'; return 0; }
+			[ $i -lt $SETTINGS_LOCK_WAIT ] || { printf '{"error":"another save is in progress"}'; return 0; }
+			i=$((i + 1))
+			sleep 1
+		done
+		"$@"
+		return 0
+	} 4> "$STATE/settings.lock" || printf '{"error":"cannot lock the settings"}'
+}
+
+set_flow_offload() {
+	local en
+	en=$(json_input "$1" enabled)
+	case "$en" in 0|1) ;; *) printf '{"error":"enabled must be 0 or 1"}'; return ;; esac
+	# Hardware offload rides on the software flowtable, so enabling it turns
+	# both on; disabling only drops the hardware part.
+	{ [ "$en" = 0 ] || uci -q set firewall.@defaults[0].flow_offloading=1; } &&
+		uci -q set firewall.@defaults[0].flow_offloading_hw="$en" &&
+		uci -q commit firewall ||
+		{ printf '{"error":"cannot save the firewall settings"}'; return; }
+	# fw4 rebuilds its flowtable on reload; only a finished reload applies it.
+	# Nothing it starts may inherit the settings lock.
+	"$R/etc/init.d/firewall" reload >/dev/null 2>&1 4>&- ||
+		{ printf '{"error":"saved, but reloading the firewall failed"}'; return; }
+	printf '{"result":"ok","enabled":%s}' "$en"
+}
+
+set_wed_enable() {
+	local en mod tmp val=N
+	en=$(json_input "$1" enabled)
+	case "$en" in 0|1) ;; *) printf '{"error":"enabled must be 0 or 1"}'; return ;; esac
+	[ "$en" = 1 ] && val=Y
+	mod=$(wed_module)
+	tmp="$MODCONF.mtkw.$$"
+	# Remove only this module's wed_enable tokens, split the way kmodloader
+	# splits a line: other options and comments stay. The new value is then
+	# written explicitly, so another line cannot keep WED on.
+	if [ -f "$MODCONF" ]; then
+		awk -v mod="$mod" "$KARGS_AWK"'
+			{
+				line = $0; cmt = ""
+				if ((i = index(line, "#")) > 0) { cmt = substr(line, i); line = substr(line, 1, i - 1) }
+				split(line, w)
+				if (w[1] != "options" || w[2] != mod) { print; next }
+				sub(/^[ \t]*options[ \t]+[^ \t]+/, "", line)
+				n = kargs(line, t); rest = ""; hit = 0
+				for (j = 1; j <= n; j++) {
+					karg(t[j])
+					if (KN == "wed_enable") hit = 1; else rest = rest " " t[j]
+				}
+				if (!hit) { print; next }
+				if (rest != "") print "options " mod rest (cmt != "" ? " " cmt : "")
+				else if (cmt != "") print cmt
+			}' "$MODCONF" 2>/dev/null > "$tmp" ||
+			{ rm -f "$tmp"; printf '{"error":"cannot read modules.conf"}'; return; }
+	fi
+	printf 'options %s wed_enable=%s\n' "$mod" "$val" 2>/dev/null >> "$tmp" &&
+		mv -f "$tmp" "$MODCONF" 2>/dev/null ||
+		{ rm -f "$tmp"; printf '{"error":"cannot write modules.conf"}'; return; }
+	printf '{"result":"ok","enabled":%s,"module":"%s","reboot_required":true}' "$en" "$mod"
+}
+
+set_cpu_settings() {
+	local gov freq p ok_gov=0 ok_freq=0 f failed=0
+	gov=$(json_input "$1" governor)
+	freq=$(json_input "$1" freq)
+	p=$(cpu_policy)
+	[ -n "$p" ] || { printf '{"error":"cpufreq unavailable"}'; return; }
+	for f in $(read_first "$p/scaling_available_governors"); do [ "$f" = "$gov" ] && ok_gov=1; done
+	for f in $(read_first "$p/scaling_available_frequencies"); do [ "$f" = "$freq" ] && ok_freq=1; done
+	[ $ok_gov = 1 ] || { printf '{"error":"unsupported governor"}'; return; }
+	[ $ok_freq = 1 ] || { printf '{"error":"unsupported frequency"}'; return; }
+	for p in "$R"/sys/devices/system/cpu/cpufreq/policy*; do
+		[ -d "$p" ] || continue
+		echo "$gov" 2>/dev/null > "$p/scaling_governor" || failed=1
+		echo "$freq" 2>/dev/null > "$p/scaling_max_freq" || failed=1
+	done
+	[ $failed = 0 ] || { printf '{"error":"cannot apply the CPU settings"}'; return; }
+	uci -q set mtk_wed.cpu=cpu &&
+		uci -q set mtk_wed.cpu.governor="$gov" &&
+		uci -q set mtk_wed.cpu.max_freq="$freq" &&
+		uci -q commit mtk_wed ||
+		{ printf '{"error":"applied, but saving the CPU settings failed"}'; return; }
+	printf '{"result":"ok","governor":"%s","freq":%s}' "$gov" "$freq"
+}
+
+case "$1" in
+	list)
+		printf '{"getStatus":{"skip_ppe":true},"getPorts":{},"getPpeEntries":{"page":0,"state":"","type":"","ppe":"","refresh":true},"getMacStats":{},"getWifiStats":{},"setFlowOffload":{"enabled":0},"setWedEnable":{"enabled":0},"setCpuSettings":{"governor":"","freq":0}}'
+		;;
+	call)
+		[ -d "$STATE" ] || mkdir -p -m 0700 "$STATE" 2>/dev/null
+		case "$2" in
+			getStatus) read -r input; get_status "$input" ;;
+			getPorts) get_ports ;;
+			getPpeEntries) read -r input; get_ppe_entries "$input" ;;
+			getMacStats) get_mac_stats ;;
+			getWifiStats) get_wifi_stats ;;
+			setFlowOffload) read -r input; locked set_flow_offload "$input" ;;
+			setWedEnable) read -r input; locked set_wed_enable "$input" ;;
+			setCpuSettings) read -r input; locked set_cpu_settings "$input" ;;
+			*) printf '{"error":"unknown method"}' ;;
+		esac
+		;;
+esac

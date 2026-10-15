@@ -1,0 +1,419 @@
+msgid ""
+msgstr ""
+"Content-Type: text/plain; charset=UTF-8\n"
+"Language: zh_Hant\n"
+
+msgid "Port"
+msgstr "連接埠"
+
+msgid "Path"
+msgstr "路徑"
+
+msgid "Link"
+msgstr "連線"
+
+msgid "Speed / Duplex"
+msgstr "速率 / 雙工"
+
+msgid "RX / TX bytes"
+msgstr "接收 / 傳送位元組"
+
+msgid "RX / TX packets"
+msgstr "接收 / 傳送封包"
+
+msgid "RX / TX errors"
+msgstr "接收 / 傳送錯誤"
+
+msgid "RX / TX dropped"
+msgstr "接收 / 傳送丟棄"
+
+msgid "Switch"
+msgstr "交換器"
+
+msgid "Link up"
+msgstr "已連線"
+
+msgid "Link down"
+msgstr "未連線"
+
+msgid "Port data unavailable"
+msgstr "無法取得連接埠資料"
+
+msgid "conservative"
+msgstr "保守"
+
+msgid "ondemand"
+msgstr "按需"
+
+msgid "performance"
+msgstr "效能"
+
+msgid "powersave"
+msgstr "省電"
+
+msgid "userspace"
+msgstr "使用者空間"
+
+msgid "CPU Info"
+msgstr "CPU 資訊"
+
+msgid "CPU model / temperature"
+msgstr "CPU 型號 / 溫度"
+
+msgid "Model"
+msgstr "型號"
+
+msgid "Architecture"
+msgstr "架構"
+
+msgid "Core Count"
+msgstr "核心數"
+
+msgid "Temperature"
+msgstr "溫度"
+
+msgid "Error: %s"
+msgstr "錯誤：%s"
+
+msgid "CPU settings saved — they will persist after a reboot"
+msgstr "CPU 設定已儲存，重新開機後仍會保留"
+
+msgid "Save"
+msgstr "儲存"
+
+msgid "CPU Control"
+msgstr "CPU 控制"
+
+msgid "Governor"
+msgstr "調速器"
+
+msgid "Max Freq"
+msgstr "最高頻率"
+
+msgid "CPU frequency scaling is not available on this board"
+msgstr "這台設備不支援 CPU 調頻"
+
+msgid "No data"
+msgstr "沒有資料"
+
+msgid "Frequency History"
+msgstr "頻率歷史"
+
+msgid "Not available"
+msgstr "無法使用"
+
+msgid "No WED instances found"
+msgstr "找不到 WED"
+
+msgid "Active"
+msgstr "運作中"
+
+msgid "WED attached"
+msgstr "個 WED 已連接"
+
+msgid "Inactive"
+msgstr "未運作"
+
+msgid "Disabled in the Wi-Fi driver"
+msgstr "Wi-Fi 驅動未啟用 WED"
+
+msgid "No Wi-Fi device attached"
+msgstr "沒有連接 Wi-Fi 裝置"
+
+msgid "PPE Engines"
+msgstr "PPE 引擎"
+
+msgid "Packet processing engines"
+msgstr "封包處理引擎"
+
+msgid "PPE debugfs not found"
+msgstr "找不到 PPE debugfs"
+
+msgid "Wi-Fi Acceleration (WED)"
+msgstr "Wi-Fi 加速（WED）"
+
+msgid "Offload Statistics"
+msgstr "卸載統計"
+
+msgid "Bound / total PPE flows"
+msgstr "已綁定 / 全部 PPE 流量"
+
+msgid "CPU Temperature"
+msgstr "CPU 溫度"
+
+msgid "cores"
+msgstr "核心"
+
+msgid "Enabled"
+msgstr "已啟用"
+
+msgid "Software only"
+msgstr "僅軟體"
+
+msgid "Disabled"
+msgstr "已停用"
+
+msgid "Wi-Fi driver not loaded"
+msgstr "Wi-Fi 驅動未載入"
+
+msgid "Cannot read the Wi-Fi statistics: %s"
+msgstr "無法讀取 Wi-Fi 統計：%s"
+
+msgid "Install iw to see the Wi-Fi statistics."
+msgstr "安裝 iw 後即可顯示 Wi-Fi 統計。"
+
+msgid "Some Wi-Fi data could not be read or saved; the rates may be incomplete."
+msgstr "部分 Wi-Fi 資料無法讀取或儲存；速率可能不完整。"
+
+msgid "Unknown"
+msgstr "未知"
+
+msgid "Reboot required"
+msgstr "需重新開機"
+
+msgid "Hardware Flow Offload"
+msgstr "硬體流量卸載"
+
+msgid "takes effect after a reboot"
+msgstr "重新開機後生效"
+
+msgid "Saved. Reboot the router to apply the Wi-Fi acceleration change."
+msgstr "已儲存。請重新開機路由器，讓 Wi-Fi 加速設定生效。"
+
+msgid "Bound share"
+msgstr "綁定率"
+
+msgid "Bound"
+msgstr "已綁定"
+
+msgid "Unbound"
+msgstr "未綁定"
+
+msgid "WED Engines"
+msgstr "WED 引擎"
+
+msgid "Version"
+msgstr "版本"
+
+msgid "Wi-Fi device"
+msgstr "Wi-Fi 裝置"
+
+msgid "Attached"
+msgstr "已連接"
+
+msgid "Not attached"
+msgstr "未連接"
+
+msgid "WO firmware"
+msgstr "WO 韌體"
+
+msgid "No PPE or WED debugfs entries were found. Is debugfs mounted?"
+msgstr "找不到 PPE 或 WED 的 debugfs 資料，請確認 debugfs 已掛載。"
+
+msgid "MAC Counters (GDM)"
+msgstr "MAC 計數（GDM）"
+
+msgid "Install the ethtool package to show the hardware MAC counters."
+msgstr "安裝 ethtool 套件後即可顯示硬體 MAC 計數。"
+
+msgid "MAC counters are unavailable."
+msgstr "無法取得 MAC 計數。"
+
+msgid "Hardware MIB counters of each GDM, read with ethtool -S."
+msgstr "各 GDM 的硬體 MIB 計數，來自 ethtool -S。"
+
+msgid "TX packets"
+msgstr "傳送封包"
+
+msgid "RX packets"
+msgstr "接收封包"
+
+msgid "RX overflow"
+msgstr "接收溢位"
+
+msgid "FCS errors"
+msgstr "FCS 錯誤"
+
+msgid "Checksum errors"
+msgstr "校驗和錯誤"
+
+msgid "Flow control frames"
+msgstr "流量控制幀"
+
+msgid "WiFi Band Details"
+msgstr "Wi-Fi 頻段詳細"
+
+msgid "Per-band airtime efficiency, negotiated and expected rates, and failure counts."
+msgstr "各頻段的空口效率、協商與預期速率，以及失敗次數。"
+
+msgid "No clients"
+msgstr "沒有用戶端"
+
+msgid "Poor"
+msgstr "差"
+
+msgid "Fair"
+msgstr "尚可"
+
+msgid "Good"
+msgstr "良好"
+
+msgid "Band"
+msgstr "頻段"
+
+msgid "Airtime"
+msgstr "空口效率"
+
+msgid "Status"
+msgstr "狀態"
+
+msgid "Clients"
+msgstr "用戶端"
+
+msgid "Retry"
+msgstr "重傳"
+
+msgid "PHY / Expected"
+msgstr "PHY / 預期"
+
+msgid "Failed"
+msgstr "失敗"
+
+msgid "Signal"
+msgstr "訊號"
+
+msgid "TX"
+msgstr "傳送"
+
+msgid "PPE table unavailable"
+msgstr "無法取得 PPE 流量表"
+
+msgid "flows"
+msgstr "筆"
+
+msgid "showing"
+msgstr "顯示"
+
+msgid "No matching flows"
+msgstr "沒有符合的流量"
+
+msgid "Index"
+msgstr "索引"
+
+msgid "State"
+msgstr "狀態"
+
+msgid "Type"
+msgstr "類型"
+
+msgid "Original Flow"
+msgstr "原始流"
+
+msgid "New Flow"
+msgstr "轉換後"
+
+msgid "Packets"
+msgstr "封包"
+
+msgid "Bytes"
+msgstr "位元組"
+
+msgid "All states"
+msgstr "所有狀態"
+
+msgid "All types"
+msgstr "所有類型"
+
+msgid "All PPEs"
+msgstr "所有 PPE"
+
+msgid "Previous page"
+msgstr "上一頁"
+
+msgid "Next page"
+msgstr "下一頁"
+
+msgid "MediaTek SoC Status"
+msgstr "MediaTek SoC 狀態"
+
+msgid "Ethernet Ports"
+msgstr "乙太網路連接埠"
+
+msgid "Loading…"
+msgstr "載入中…"
+
+msgid "CPU Frequency"
+msgstr "CPU 頻率"
+
+msgid "Hardware Offload"
+msgstr "硬體加速"
+
+msgid "Switches here apply the hardware offload settings for this device."
+msgstr "這裡的開關會套用到這台設備的硬體加速設定。"
+
+msgid "PPE Flow Offload Entries"
+msgstr "PPE 流量卸載表"
+
+msgid "Cannot read status from the luci.mtk_wed backend: %s"
+msgstr "無法從 luci.mtk_wed 後端讀取狀態：%s"
+
+msgid "Updated %s"
+msgstr "更新於 %s"
+
+msgid "MediaTek SoC"
+msgstr "MediaTek SoC"
+
+msgid "Grant access to MediaTek hardware offload status and settings"
+msgstr "允許存取 MediaTek 硬體加速狀態與設定"
+
+
+msgid "ACTIVE"
+msgstr "使用中"
+
+msgid "IDLE"
+msgstr "閒置"
+
+msgid "cannot save the firewall settings"
+msgstr "無法儲存防火牆設定"
+
+msgid "saved, but reloading the firewall failed"
+msgstr "已儲存，但重新載入防火牆失敗"
+
+msgid "cannot read modules.conf"
+msgstr "無法讀取 modules.conf"
+
+msgid "cannot write modules.conf"
+msgstr "無法寫入 modules.conf"
+
+msgid "cpufreq unavailable"
+msgstr "無法使用 CPU 調頻"
+
+msgid "unsupported governor"
+msgstr "不支援的調速器"
+
+msgid "unsupported frequency"
+msgstr "不支援的頻率"
+
+msgid "cannot apply the CPU settings"
+msgstr "無法套用 CPU 設定"
+
+msgid "applied, but saving the CPU settings failed"
+msgstr "已套用，但儲存 CPU 設定失敗"
+
+msgid "another save is in progress"
+msgstr "另一個儲存仍在進行中"
+
+msgid "cannot lock the settings"
+msgstr "無法鎖定設定"
+
+msgid "cannot snapshot PPE tables"
+msgstr "無法擷取 PPE 流量表"
+
+msgid "cannot read the PPE snapshot"
+msgstr "無法讀取 PPE 快照"
+
+msgid "cannot read PPE tables"
+msgstr "無法讀取 PPE 流量表"
+
+msgid "iw dev failed"
+msgstr "iw dev 執行失敗"

@@ -1,0 +1,419 @@
+msgid ""
+msgstr ""
+"Content-Type: text/plain; charset=UTF-8\n"
+"Language: zh_Hans\n"
+
+msgid "Port"
+msgstr "端口"
+
+msgid "Path"
+msgstr "路径"
+
+msgid "Link"
+msgstr "连接"
+
+msgid "Speed / Duplex"
+msgstr "速率 / 双工"
+
+msgid "RX / TX bytes"
+msgstr "接收 / 发送字节"
+
+msgid "RX / TX packets"
+msgstr "接收 / 发送封包"
+
+msgid "RX / TX errors"
+msgstr "接收 / 发送错误"
+
+msgid "RX / TX dropped"
+msgstr "接收 / 发送丢弃"
+
+msgid "Switch"
+msgstr "交换器"
+
+msgid "Link up"
+msgstr "已连接"
+
+msgid "Link down"
+msgstr "未连接"
+
+msgid "Port data unavailable"
+msgstr "无法取得端口数据"
+
+msgid "conservative"
+msgstr "保守"
+
+msgid "ondemand"
+msgstr "按需"
+
+msgid "performance"
+msgstr "性能"
+
+msgid "powersave"
+msgstr "省电"
+
+msgid "userspace"
+msgstr "用户空间"
+
+msgid "CPU Info"
+msgstr "CPU 信息"
+
+msgid "CPU model / temperature"
+msgstr "CPU 型号 / 温度"
+
+msgid "Model"
+msgstr "型号"
+
+msgid "Architecture"
+msgstr "架构"
+
+msgid "Core Count"
+msgstr "内核数"
+
+msgid "Temperature"
+msgstr "温度"
+
+msgid "Error: %s"
+msgstr "错误：%s"
+
+msgid "CPU settings saved — they will persist after a reboot"
+msgstr "CPU 设置已保存，重新开机后仍会保留"
+
+msgid "Save"
+msgstr "保存"
+
+msgid "CPU Control"
+msgstr "CPU 控制"
+
+msgid "Governor"
+msgstr "调速器"
+
+msgid "Max Freq"
+msgstr "最高频率"
+
+msgid "CPU frequency scaling is not available on this board"
+msgstr "这台设备不支持 CPU 调频"
+
+msgid "No data"
+msgstr "没有数据"
+
+msgid "Frequency History"
+msgstr "频率历史"
+
+msgid "Not available"
+msgstr "无法使用"
+
+msgid "No WED instances found"
+msgstr "找不到 WED"
+
+msgid "Active"
+msgstr "运作中"
+
+msgid "WED attached"
+msgstr "个 WED 已连接"
+
+msgid "Inactive"
+msgstr "未运作"
+
+msgid "Disabled in the Wi-Fi driver"
+msgstr "Wi-Fi 驱动未激活 WED"
+
+msgid "No Wi-Fi device attached"
+msgstr "没有连接 Wi-Fi 设备"
+
+msgid "PPE Engines"
+msgstr "PPE 引擎"
+
+msgid "Packet processing engines"
+msgstr "封包处理引擎"
+
+msgid "PPE debugfs not found"
+msgstr "找不到 PPE debugfs"
+
+msgid "Wi-Fi Acceleration (WED)"
+msgstr "Wi-Fi 加速（WED）"
+
+msgid "Offload Statistics"
+msgstr "卸载统计"
+
+msgid "Bound / total PPE flows"
+msgstr "已绑定 / 全部 PPE 流量"
+
+msgid "CPU Temperature"
+msgstr "CPU 温度"
+
+msgid "cores"
+msgstr "内核"
+
+msgid "Enabled"
+msgstr "已激活"
+
+msgid "Software only"
+msgstr "仅软件"
+
+msgid "Disabled"
+msgstr "已停用"
+
+msgid "Wi-Fi driver not loaded"
+msgstr "Wi-Fi 驱动未加载"
+
+msgid "Cannot read the Wi-Fi statistics: %s"
+msgstr "无法读取 Wi-Fi 统计：%s"
+
+msgid "Install iw to see the Wi-Fi statistics."
+msgstr "安装 iw 后即可显示 Wi-Fi 统计。"
+
+msgid "Some Wi-Fi data could not be read or saved; the rates may be incomplete."
+msgstr "部分 Wi-Fi 数据无法读取或保存；速率可能不完整。"
+
+msgid "Unknown"
+msgstr "未知"
+
+msgid "Reboot required"
+msgstr "需重新开机"
+
+msgid "Hardware Flow Offload"
+msgstr "硬件流量卸载"
+
+msgid "takes effect after a reboot"
+msgstr "重新开机后生效"
+
+msgid "Saved. Reboot the router to apply the Wi-Fi acceleration change."
+msgstr "已保存。请重新开机路由器，让 Wi-Fi 加速设置生效。"
+
+msgid "Bound share"
+msgstr "绑定率"
+
+msgid "Bound"
+msgstr "已绑定"
+
+msgid "Unbound"
+msgstr "未绑定"
+
+msgid "WED Engines"
+msgstr "WED 引擎"
+
+msgid "Version"
+msgstr "版本"
+
+msgid "Wi-Fi device"
+msgstr "Wi-Fi 设备"
+
+msgid "Attached"
+msgstr "已连接"
+
+msgid "Not attached"
+msgstr "未连接"
+
+msgid "WO firmware"
+msgstr "WO 固件"
+
+msgid "No PPE or WED debugfs entries were found. Is debugfs mounted?"
+msgstr "找不到 PPE 或 WED 的 debugfs 数据，请确认 debugfs 已挂载。"
+
+msgid "MAC Counters (GDM)"
+msgstr "MAC 计数（GDM）"
+
+msgid "Install the ethtool package to show the hardware MAC counters."
+msgstr "安装 ethtool 套件后即可显示硬件 MAC 计数。"
+
+msgid "MAC counters are unavailable."
+msgstr "无法取得 MAC 计数。"
+
+msgid "Hardware MIB counters of each GDM, read with ethtool -S."
+msgstr "各 GDM 的硬件 MIB 计数，来自 ethtool -S。"
+
+msgid "TX packets"
+msgstr "发送封包"
+
+msgid "RX packets"
+msgstr "接收封包"
+
+msgid "RX overflow"
+msgstr "接收溢出"
+
+msgid "FCS errors"
+msgstr "FCS 错误"
+
+msgid "Checksum errors"
+msgstr "校验和错误"
+
+msgid "Flow control frames"
+msgstr "流量控制帧"
+
+msgid "WiFi Band Details"
+msgstr "Wi-Fi 频段详细"
+
+msgid "Per-band airtime efficiency, negotiated and expected rates, and failure counts."
+msgstr "各频段的空口效率、协商与预期速率，以及失败次数。"
+
+msgid "No clients"
+msgstr "没有客户端"
+
+msgid "Poor"
+msgstr "差"
+
+msgid "Fair"
+msgstr "尚可"
+
+msgid "Good"
+msgstr "良好"
+
+msgid "Band"
+msgstr "频段"
+
+msgid "Airtime"
+msgstr "空口效率"
+
+msgid "Status"
+msgstr "状态"
+
+msgid "Clients"
+msgstr "客户端"
+
+msgid "Retry"
+msgstr "重传"
+
+msgid "PHY / Expected"
+msgstr "PHY / 预期"
+
+msgid "Failed"
+msgstr "失败"
+
+msgid "Signal"
+msgstr "信号"
+
+msgid "TX"
+msgstr "发送"
+
+msgid "PPE table unavailable"
+msgstr "无法取得 PPE 流量表"
+
+msgid "flows"
+msgstr "笔"
+
+msgid "showing"
+msgstr "显示"
+
+msgid "No matching flows"
+msgstr "没有符合的流量"
+
+msgid "Index"
+msgstr "索引"
+
+msgid "State"
+msgstr "状态"
+
+msgid "Type"
+msgstr "类型"
+
+msgid "Original Flow"
+msgstr "原始流"
+
+msgid "New Flow"
+msgstr "转换后"
+
+msgid "Packets"
+msgstr "封包"
+
+msgid "Bytes"
+msgstr "字节"
+
+msgid "All states"
+msgstr "所有状态"
+
+msgid "All types"
+msgstr "所有类型"
+
+msgid "All PPEs"
+msgstr "所有 PPE"
+
+msgid "Previous page"
+msgstr "上一页"
+
+msgid "Next page"
+msgstr "下一页"
+
+msgid "MediaTek SoC Status"
+msgstr "MediaTek SoC 状态"
+
+msgid "Ethernet Ports"
+msgstr "以太网端口"
+
+msgid "Loading…"
+msgstr "加载中…"
+
+msgid "CPU Frequency"
+msgstr "CPU 频率"
+
+msgid "Hardware Offload"
+msgstr "硬件加速"
+
+msgid "Switches here apply the hardware offload settings for this device."
+msgstr "这里的开关会套用到这台设备的硬件加速设置。"
+
+msgid "PPE Flow Offload Entries"
+msgstr "PPE 流量卸载表"
+
+msgid "Cannot read status from the luci.mtk_wed backend: %s"
+msgstr "无法从 luci.mtk_wed 后端读取状态：%s"
+
+msgid "Updated %s"
+msgstr "更新于 %s"
+
+msgid "MediaTek SoC"
+msgstr "MediaTek SoC"
+
+msgid "Grant access to MediaTek hardware offload status and settings"
+msgstr "允许访问 MediaTek 硬件加速状态与设置"
+
+
+msgid "ACTIVE"
+msgstr "使用中"
+
+msgid "IDLE"
+msgstr "空闲"
+
+msgid "cannot save the firewall settings"
+msgstr "无法保存防火墙设置"
+
+msgid "saved, but reloading the firewall failed"
+msgstr "已保存，但重新加载防火墙失败"
+
+msgid "cannot read modules.conf"
+msgstr "无法读取 modules.conf"
+
+msgid "cannot write modules.conf"
+msgstr "无法写入 modules.conf"
+
+msgid "cpufreq unavailable"
+msgstr "无法使用 CPU 调频"
+
+msgid "unsupported governor"
+msgstr "不支持的调速器"
+
+msgid "unsupported frequency"
+msgstr "不支持的频率"
+
+msgid "cannot apply the CPU settings"
+msgstr "无法应用 CPU 设置"
+
+msgid "applied, but saving the CPU settings failed"
+msgstr "已应用，但保存 CPU 设置失败"
+
+msgid "another save is in progress"
+msgstr "另一个保存仍在进行中"
+
+msgid "cannot lock the settings"
+msgstr "无法锁定设置"
+
+msgid "cannot snapshot PPE tables"
+msgstr "无法获取 PPE 流量表"
+
+msgid "cannot read the PPE snapshot"
+msgstr "无法读取 PPE 快照"
+
+msgid "cannot read PPE tables"
+msgstr "无法读取 PPE 流量表"
+
+msgid "iw dev failed"
+msgstr "iw dev 执行失败"
