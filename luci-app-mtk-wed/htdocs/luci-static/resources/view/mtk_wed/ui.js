@@ -58,11 +58,19 @@ var COMPONENT_CSS = [
 	'.mtkw-page{color:var(--ds-text);line-height:1.5}',
 	'.mtkw-page :focus-visible{outline:2px solid var(--ds-primary);outline-offset:1px}',
 
+	'.ai-pagehead{display:flex;flex-wrap:wrap;align-items:flex-end;justify-content:space-between;gap:var(--ds-sp-2) var(--ds-sp-4);margin:0 0 var(--ds-sp-4)}',
+	'.ai-pagehead-text{min-width:0}',
 	'.ai-pagehead h2{margin:0;font-size:var(--ds-fs-2xl);line-height:1.3;font-weight:650;color:var(--ds-text)}',
-	'.ai-lede{margin:var(--ds-sp-1) 0 0;color:var(--ds-text-muted);font-size:var(--ds-fs-sm)}',
+	'.ai-lede{margin:var(--ds-sp-1) 0 0;color:var(--ds-text-muted);font-size:var(--ds-fs-sm);overflow-wrap:anywhere}',
+	'.ai-lede[data-error="true"]{color:var(--ds-error)}',
 	'.ai-toolbar{display:flex;flex-wrap:wrap;align-items:center;gap:var(--ds-sp-2);margin:var(--ds-sp-3) 0}',
 	'.ai-toolbar .ai-spacer{flex:1}',
-	'.ai-updated{color:var(--ds-text-muted);font-size:var(--ds-fs-sm)}',
+	/* The time of the last good read; it turns amber while reads fail. */
+	'.ai-updated{display:inline-flex;align-items:center;gap:var(--ds-sp-2);min-height:24px;padding:0 var(--ds-sp-3);border:1px solid var(--ds-border);border-radius:var(--ds-r-pill);background:var(--ds-surface);color:var(--ds-text-muted);font-size:var(--ds-fs-xs);font-variant-numeric:tabular-nums;white-space:nowrap}',
+	'.ai-updated:empty{display:none}',
+	'.ai-updated::before{content:"";width:7px;height:7px;border-radius:50%;background:var(--ds-ok);box-shadow:0 0 0 3px var(--ds-ok-tint)}',
+	'.ai-updated[data-state="stale"]{color:var(--ds-warn);border-color:var(--ds-warn-line);background:var(--ds-warn-tint)}',
+	'.ai-updated[data-state="stale"]::before{background:var(--ds-warn);box-shadow:0 0 0 3px var(--ds-warn-tint)}',
 
 	'.ai-section{margin:0 0 var(--ds-sp-5);padding:var(--ds-sp-4) var(--ds-sp-4) var(--ds-sp-3);border:1px solid var(--ds-border);border-radius:var(--ds-r-lg);background:var(--ds-surface);box-shadow:var(--ds-shadow-1)}',
 	'.ai-section-head{display:flex;flex-wrap:wrap;align-items:center;gap:var(--ds-sp-2);margin:0 0 var(--ds-sp-3);padding:0 0 var(--ds-sp-2);border-bottom:1px solid var(--ds-border)}',
@@ -98,6 +106,8 @@ var COMPONENT_CSS = [
 	'.ai-muted{color:var(--ds-text-muted)}',
 	'.ai-num{font-family:var(--ds-mono);font-variant-numeric:tabular-nums;text-align:right}',
 	'.ai-err{color:var(--ds-error);font-weight:650}',
+	'.ai-chips{display:flex;flex-wrap:wrap;gap:var(--ds-sp-1);margin:0 0 var(--ds-sp-2)}',
+	'.ai-chip{display:inline-flex;align-items:center;min-height:20px;padding:0 var(--ds-sp-2);border:1px solid var(--ds-border);border-radius:var(--ds-r-pill);background:var(--ds-surface-sunken);color:var(--ds-text);font-size:var(--ds-fs-xs);white-space:nowrap}',
 
 	'.ai-kv{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:1px;background:var(--ds-border);border:1px solid var(--ds-border);border-radius:var(--ds-r-md);overflow:hidden}',
 	'.ai-kv-item{display:flex;align-items:baseline;justify-content:space-between;gap:var(--ds-sp-2);padding:var(--ds-sp-2) var(--ds-sp-3);background:var(--ds-surface-sunken);font-size:var(--ds-fs-sm);min-width:0}',
@@ -183,6 +193,10 @@ var COMPONENT_CSS = [
 	'.ai-port-table .ai-table{min-width:980px}',
 	'.ai-port-table .ai-table td{white-space:nowrap}',
 	'.ai-offload-controls .ai-switch-row{grid-template-columns:minmax(0,1fr) auto}',
+	'.ai-flowbar{display:flex;flex-wrap:wrap;align-items:center;gap:var(--ds-sp-2);margin:0 0 var(--ds-sp-2)}',
+	'.ai-flowbar select{width:auto;min-width:8.5em;max-width:100%}',
+	'.ai-flowbar .ai-pager{display:inline-flex;align-items:center;gap:var(--ds-sp-1)}',
+	'.ai-flowbar .ai-spacer{flex:1}',
 
 	'.ai-details{border:1px solid var(--ds-border);border-radius:var(--ds-r-md);background:var(--ds-surface-sunken);padding:0 var(--ds-sp-3);margin-top:var(--ds-sp-3)}',
 	'.ai-details>summary{cursor:pointer;padding:var(--ds-sp-2) 0;font-size:var(--ds-fs-sm);font-weight:650}',
@@ -210,7 +224,34 @@ var COMPONENT_CSS = [
 	'.mtkw-page h2,.mtkw-page h3,.mtkw-page .ai-lede{background:transparent;border:0;box-shadow:none;text-shadow:none}',
 	'.mtkw-page .ai-section-head h3{background:transparent}',
 
-	'@media (max-width:720px){.ai-table--stack thead{display:none}.ai-table--stack,.ai-table--stack tbody,.ai-table--stack tr,.ai-table--stack td{display:block;width:100%}.ai-table--stack tr{padding:var(--ds-sp-2) 0;border-bottom:1px solid var(--ds-border)}.ai-table--stack td{border:0;padding:0}.ai-table--stack td:before{display:block;content:attr(data-label);color:var(--ds-text-muted);font-size:var(--ds-fs-xs);font-weight:650}.ai-kv,.ai-switch-row{grid-template-columns:1fr}}'
+	'@media (max-width:720px){.ai-table--stack thead{display:none}.ai-table--stack,.ai-table--stack tbody,.ai-table--stack tr,.ai-table--stack td{display:block;width:100%}.ai-table--stack tr{padding:var(--ds-sp-2) 0;border-bottom:1px solid var(--ds-border)}.ai-table--stack td{border:0;padding:0}.ai-table--stack td:before{display:block;content:attr(data-label);color:var(--ds-text-muted);font-size:var(--ds-fs-xs);font-weight:650}.ai-kv,.ai-switch-row{grid-template-columns:1fr}}',
+
+	/* Narrow screens: a flow is one compact block (key fields on a line, the
+	 * two flows below, then the counters) and a port is a two-column card,
+	 * instead of a label above every value. */
+	'@media (max-width:720px){' +
+		'.ai-flows-wrap{max-height:70vh}' +
+		'.ai-flows tr{display:flex;flex-wrap:wrap;align-items:center;gap:var(--ds-sp-1) var(--ds-sp-2);padding:var(--ds-sp-2) var(--ds-sp-1)}' +
+		'.ai-flows td{width:auto;flex:0 0 auto}' +
+		'.ai-flows td[colspan]{flex:1 1 100%}' +
+		'.ai-flows td.f-key:before{display:none}' +
+		'.ai-flows td.f-flow,.ai-flows td.f-cnt{display:flex;gap:var(--ds-sp-2);align-items:baseline}' +
+		'.ai-flows td.f-flow{flex:1 1 100%}' +
+		'.ai-flows td.f-cnt{flex:1 1 40%}' +
+		'.ai-flows td.f-flow:before,.ai-flows td.f-cnt:before,.ai-flows td.f-vlan:before{display:inline;flex:0 0 auto;margin-right:var(--ds-sp-1)}' +
+		'.ai-flows .ai-num{text-align:left}' +
+		'.ai-port-table .ai-table{min-width:0}' +
+		'.ai-port-table .ai-table td{white-space:normal}' +
+		'.ai-port-table .ai-table tr{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:var(--ds-sp-1) var(--ds-sp-3)}' +
+		'.ai-port-table .ai-table td:first-child{grid-column:1/-1;font-weight:650}' +
+		'.ai-port-table .ai-table td:first-child:before{display:none}' +
+		'.ai-port-table .ai-num{text-align:left}' +
+	'}',
+
+	/* Some themes (Bootstrap) define a "low" text colour for disabled text,
+	 * 1.5:1 on dark and 1.8:1 on light, and the muted token picks it up. Mix
+	 * the body text into the surface instead: ~5:1 on either, in any theme. */
+	'@supports (color:color-mix(in srgb,red 50%,blue)){:root .mtkw-page{--ds-text-muted:color-mix(in srgb,var(--ds-text) 75%,var(--ds-surface))}}'
 ].join('\n');
 
 /* ── Escaping / formatting helpers ─────────────────────────────────────────

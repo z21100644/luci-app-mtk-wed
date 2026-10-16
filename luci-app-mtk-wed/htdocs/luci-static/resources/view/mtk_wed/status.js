@@ -64,10 +64,9 @@ function hasGdm(p) {
 
 /* The ports behind one GDM, DSA user ports included. */
 function gdmPorts(gdm, ports) {
-	var names = (ports || []).filter(function(p) {
+	return (ports || []).filter(function(p) {
 		return hasGdm(p) && Number(p.gdm) === Number(gdm);
 	}).map(portName);
-	return names.length ? names.join(' · ') : gdmLabel(gdm);
 }
 
 /* The PPEs a SoC has (mtk_soc_data.ppe_num), not the ones whose debugfs
@@ -149,7 +148,7 @@ function renderPorts(pt) {
 				fmtCount(p.rx_dropped) + ' / ' + fmtCount(p.tx_dropped)
 			];
 		}),
-		emptyText: _('Port data unavailable')
+		emptyText: _('Port data unavailable'), stack: true
 	});
 	t.classList.add('ai-port-table');
 	return t;
@@ -285,7 +284,7 @@ function svgEl(tag, attrs, children) {
 function renderFreqChart(c, width) {
 	var lo = c.min_freq || 800000, hi = c.hw_max_freq || c.max_freq || lo * 2, n = freqHistory.length;
 	if (!n || hi <= lo) return aui.empty(_('No data'));
-	var W = Math.round(width > 0 ? width : 600), H = 200, px = 6, top = 14, ih = H - top - 6, iw = W - px * 2;
+	var W = Math.round(width > 0 ? width : 600), H = 120, px = 6, top = 16, ih = H - top - 6, iw = W - px * 2;
 	var pts = freqHistory.map(function(f, i) {
 		var x = px + (FREQ_HISTORY_MAX - n + i) / (FREQ_HISTORY_MAX - 1) * iw;
 		var y = top + ih - (Math.min(Math.max(f, lo), hi) - lo) / (hi - lo) * ih;
@@ -302,6 +301,9 @@ function renderFreqChart(c, width) {
 		svgEl('line', { 'x1': px, 'y1': top + ih, 'x2': W - px, 'y2': top + ih, 'style': grid }),
 		svgEl('text', { 'x': px + 2, 'y': top - 4, 'style': lbl }, [ document.createTextNode(Math.round(hi / 1000) + ' MHz') ]),
 		svgEl('text', { 'x': px + 2, 'y': top + ih - 4, 'style': lbl }, [ document.createTextNode(Math.round(lo / 1000) + ' MHz') ]),
+		/* The latest sample, so the chart answers "now" before it fills up. */
+		svgEl('text', { 'x': W - px - 2, 'y': top - 4, 'text-anchor': 'end', 'style': lbl + ';fill:var(--ds-ok);font-size:11px;font-weight:700' },
+			[ document.createTextNode(Math.round(freqHistory[n - 1] / 1000) + ' MHz') ]),
 		svgEl('polygon', { 'points': area.join(' '), 'style': 'fill:var(--ds-ok);opacity:.12;stroke:none' }),
 		svgEl('polyline', { 'points': line.join(' '), 'style': 'fill:none;stroke:var(--ds-ok);stroke-width:2;stroke-linejoin:round' }),
 		svgEl('circle', { 'cx': last[0], 'cy': last[1], 'r': '3', 'style': 'fill:var(--ds-ok)' })
@@ -481,8 +483,9 @@ function renderMacs(ms, pt, st) {
 		  [ 'rx_flow_control_packets', _('Flow control frames') ] ].forEach(function(k) {
 			if (m[k[0]] > 0) body.push(aui.row(k[1], aui.fmtK(m[k[0]]), k[0] === 'rx_flow_control_packets' ? null : 'ai-err'));
 		});
-		return aui.card({ name: gdmLabel(m.gdm), tag: gdmPorts(m.gdm, pt && pt.ports) + ' · ' + m.netdev + ' · ' + gdmPpe(m.gdm, ppeNum),
-			accent: 'var(--ai-npu)', body: body });
+		var names = gdmPorts(m.gdm, pt && pt.ports);
+		if (names.length) body.unshift(E('div', { 'class': 'ai-chips' }, names.map(function(n) { return E('span', { 'class': 'ai-chip' }, n); })));
+		return aui.card({ name: gdmLabel(m.gdm), tag: m.netdev + ' · ' + gdmPpe(m.gdm, ppeNum), accent: 'var(--ai-npu)', body: body });
 	})));
 	return E('div', {}, head);
 }
@@ -591,15 +594,15 @@ function updateFlowTable() {
 		tbody.appendChild(E('tr', {}, [ E('td', { 'colspan': '9' }, aui.empty(flowData.available === false ? _('PPE table unavailable') : _('No matching flows'))) ]));
 	slice.forEach(function(e) {
 		tbody.appendChild(E('tr', {}, [
-			E('td', { 'data-label': 'PPE' }, 'PPE' + e.ppe),
-			E('td', { 'class': 'ai-num', 'data-label': _('Index') }, e.index),
-			E('td', { 'data-label': _('State') }, aui.badge(e.state, e.state === 'BND' ? 'bnd' : 'unb')),
-			E('td', { 'data-label': _('Type') }, e.type),
-			E('td', { 'data-label': 'VLAN' }, e.vlan || '-'),
-			E('td', { 'data-label': _('Original Flow'), 'style': 'color:var(--ai-npu)' }, prettyFlow(e.orig)),
-			E('td', { 'data-label': _('New Flow') }, prettyFlow(e['new'])),
-			E('td', { 'data-label': _('Packets'), 'class': 'ai-num' }, fmtCount(e.packets)),
-			E('td', { 'data-label': _('Bytes'), 'class': 'ai-num' }, fmtBytes(e.bytes))
+			E('td', { 'class': 'f-key', 'data-label': 'PPE' }, 'PPE' + e.ppe),
+			E('td', { 'class': 'f-key ai-num', 'data-label': _('Index') }, e.index),
+			E('td', { 'class': 'f-key', 'data-label': _('State') }, aui.badge(e.state, e.state === 'BND' ? 'bnd' : 'unb')),
+			E('td', { 'class': 'f-key', 'data-label': _('Type') }, e.type),
+			E('td', { 'class': 'f-vlan', 'data-label': 'VLAN' }, e.vlan || '-'),
+			E('td', { 'class': 'f-flow', 'data-label': _('Original Flow'), 'style': 'color:var(--ai-npu)' }, prettyFlow(e.orig)),
+			E('td', { 'class': 'f-flow', 'data-label': _('New Flow') }, prettyFlow(e['new'])),
+			E('td', { 'class': 'f-cnt ai-num', 'data-label': _('Packets') }, fmtCount(e.packets)),
+			E('td', { 'class': 'f-cnt ai-num', 'data-label': _('Bytes') }, fmtBytes(e.bytes))
 		]));
 	});
 	updatePager(pages);
@@ -634,26 +637,29 @@ function renderFlowTable() {
 	var ppeSel = filter(_('All PPEs'), 'ppe', []);
 	ppeSel.id = 'mtkw-ppe-filter';
 	return E('div', {}, [
-		E('div', { 'style': 'display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:8px' }, [
+		E('div', { 'class': 'ai-flowbar' }, [
 			filter(_('All states'), 'state', [ [ 'BND', 'BND' ], [ 'UNB', 'UNB' ], [ 'FIN', 'FIN' ] ]),
 			filter(_('All types'), 'type', [ [ 'IPv4', 'IPv4' ], [ 'IPv6', 'IPv6' ], [ 'DS-LITE', 'DS-LITE' ], [ '6RD', '6RD' ] ]),
 			ppeSel,
-			E('button', { 'type': 'button', 'class': 'cbi-button', 'id': 'mtkw-prev', 'aria-label': _('Previous page'),
-				'click': function() { if (flowPage > 0) { flowPage--; updatePager(flowPages()); flowRefresh(); } } }, '‹'),
-			E('span', { 'id': 'mtkw-page', 'style': 'min-width:5em;text-align:center;font-variant-numeric:tabular-nums' }, '1 / 1'),
-			E('button', { 'type': 'button', 'class': 'cbi-button', 'id': 'mtkw-next', 'aria-label': _('Next page'),
-				'click': function() {
-					var pages = flowPages();
-					if (flowPage + 1 < pages) { flowPage++; updatePager(pages); flowRefresh(); }
-				} }, '›'),
+			E('span', { 'class': 'ai-pager' }, [
+				E('button', { 'type': 'button', 'class': 'cbi-button', 'id': 'mtkw-prev', 'aria-label': _('Previous page'),
+					'click': function() { if (flowPage > 0) { flowPage--; updatePager(flowPages()); flowRefresh(); } } }, '‹'),
+				E('span', { 'id': 'mtkw-page', 'style': 'min-width:5em;text-align:center;font-variant-numeric:tabular-nums' }, '1 / 1'),
+				E('button', { 'type': 'button', 'class': 'cbi-button', 'id': 'mtkw-next', 'aria-label': _('Next page'),
+					'click': function() {
+						var pages = flowPages();
+						if (flowPage + 1 < pages) { flowPage++; updatePager(pages); flowRefresh(); }
+					} }, '›')
+			]),
+			E('span', { 'class': 'ai-spacer' }),
 			E('select', { 'id': 'mtkw-ppe-interval', 'aria-label': _('Refresh interval'), 'title': _('Refresh interval'),
-				'style': 'margin-left:auto', 'change': function(ev) { ppeIntervalSet(Number(ev.target.value)); } },
+				'change': function(ev) { ppeIntervalSet(Number(ev.target.value)); } },
 				PPE_INTERVALS.map(function(n) {
 					return E('option', { 'value': n, 'selected': n === ppeInterval ? '' : null }, _('Every %d s').format(n));
 				}))
 		]),
-		E('div', { 'class': 'ai-table-wrap' }, [
-			E('table', { 'class': 'ai-table ai-table--mono ai-table--stack', 'id': 'mtkw-flows' }, [
+		E('div', { 'class': 'ai-table-wrap ai-flows-wrap' }, [
+			E('table', { 'class': 'ai-table ai-table--mono ai-table--stack ai-flows', 'id': 'mtkw-flows' }, [
 				E('thead', {}, E('tr', {}, head.map(function(h) { return E('th', { 'scope': 'col' }, h); }))),
 				E('tbody', {})
 			])
@@ -686,19 +692,16 @@ return view.extend({
 		cpuDirty = cpuSaving = false; freqHistory = [];
 		flowFilter = { state: '', type: '', ppe: '' }; flowPage = 0; flowData = { entries: [] };
 		var updated = E('span', { 'class': 'ai-updated' }, '');
+		/* A div, not a header: themes style every header (Bootstrap makes it
+		 * a sticky flex bar). Offload first, then what feeds it. */
 		var page = E('div', { 'class': 'cbi-map mtkw-page' }, [
-			E('header', { 'class': 'ai-pagehead' }, [
-				E('h2', {}, _('MediaTek SoC Status')),
-				E('p', { 'class': 'ai-lede', 'id': 'mtkw-lede' }, ''),
-				E('div', { 'class': 'ai-toolbar' }, [ E('span', { 'class': 'ai-spacer' }), updated ])
+			E('div', { 'class': 'ai-pagehead' }, [
+				E('div', { 'class': 'ai-pagehead-text' }, [
+					E('h2', {}, _('MediaTek SoC Status')),
+					E('p', { 'class': 'ai-lede', 'id': 'mtkw-lede' }, '')
+				]),
+				updated
 			]),
-			aui.section({ title: _('Ethernet Ports'), body: E('div', { 'id': 'mtkw-ports' }, aui.empty(_('Loading…'))) }),
-			aui.section({ title: _('CPU Frequency'), body: E('div', {}, [
-				E('div', { 'class': 'ai-grid ai-grid--2' }, [ E('div', { 'id': 'mtkw-cpu-info' }), E('div', { 'id': 'mtkw-cpu-ctl' }) ]),
-				E('div', { 'class': 'ai-grid', 'id': 'mtkw-freq-wrap', 'style': 'margin-top:var(--ds-sp-2)' }, [
-					aui.card({ name: _('Frequency History'), accent: 'var(--ai-npu)', body: E('div', { 'id': 'mtkw-freq' }) })
-				])
-			]) }),
 			aui.section({ title: _('Hardware Offload'), hint: _('Switches here apply the hardware offload settings for this device.'),
 				body: E('div', {}, [
 					E('div', { 'id': 'mtkw-tiles' }),
@@ -706,8 +709,15 @@ return view.extend({
 					E('div', { 'id': 'mtkw-engines', 'style': 'margin-top:var(--ds-sp-2)' }),
 					E('div', { 'id': 'mtkw-macs', 'style': 'margin-top:var(--ds-sp-2)' })
 				]) }),
+			aui.section({ title: _('PPE Flow Offload Entries'), count: '…', countId: 'mtkw-flow-count', body: renderFlowTable() }),
 			E('div', { 'id': 'mtkw-wifi' }),
-			aui.section({ title: _('PPE Flow Offload Entries'), count: '…', countId: 'mtkw-flow-count', body: renderFlowTable() })
+			aui.section({ title: _('Ethernet Ports'), body: E('div', { 'id': 'mtkw-ports' }, aui.empty(_('Loading…'))) }),
+			aui.section({ title: _('CPU Frequency'), body: E('div', {}, [
+				E('div', { 'class': 'ai-grid ai-grid--2' }, [ E('div', { 'id': 'mtkw-cpu-info' }), E('div', { 'id': 'mtkw-cpu-ctl' }) ]),
+				E('div', { 'class': 'ai-grid', 'id': 'mtkw-freq-wrap', 'style': 'margin-top:var(--ds-sp-2)' }, [
+					aui.card({ name: _('Frequency History'), accent: 'var(--ai-npu)', body: E('div', { 'id': 'mtkw-freq' }) })
+				])
+			]) })
 		]);
 		activePage = page;
 		function isLive() { return activePage === page && (!started || page.isConnected); }
@@ -786,6 +796,8 @@ return view.extend({
 				st.ppeFailed = !!flowData.error;
 				lastStatus = st; lastPorts = pt;
 				var lede = document.getElementById('mtkw-lede');
+				if (lede) lede.setAttribute('data-error', err ? 'true' : 'false');
+				updated.setAttribute('data-state', err ? 'stale' : 'ok');
 				if (lede) lede.textContent = err ? _('Cannot read status from the luci.mtk_wed backend: %s').format(errText(err))
 					: [ st.model, st.compatible ].filter(Boolean).join(' · ');
 				replace('mtkw-ports', renderPorts(pt));
