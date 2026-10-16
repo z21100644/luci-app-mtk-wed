@@ -447,7 +447,7 @@ function renderEngines(st) {
 	}
 	if (wed.length) {
 		var attached = wed.filter(function(w) { return w.attached; }).length;
-		var versions = wed.map(function(w) { return 'v' + w.version; }).filter(function(v, i, a) { return a.indexOf(v) === i; });
+		var versions = wed.map(function(w) { return 'v' + (w.version != null ? w.version : '?'); }).filter(function(v, i, a) { return a.indexOf(v) === i; });
 		/* WO runs only where the WED also offloads receiving; a TX-only WED
 		 * (the second PCIe link of an MT7996) has none. */
 		cards.push(aui.card({

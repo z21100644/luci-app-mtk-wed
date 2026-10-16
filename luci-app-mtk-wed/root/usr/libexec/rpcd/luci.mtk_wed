@@ -546,28 +546,41 @@ wed_param_json() {
 	printf '"wed_param":{"module":"%s","active":%s,"configured":%s}' "$mod" "$live" "$conf"
 }
 
+# wed_json <SoC compatible>
 wed_json() {
-	local d id ver attached rx k v rest fw recs= wo out="" first=1
+	local d id soc ver attached rx k v rest fw recs= wo out="" first=1
 	fw=$(wo_firmware)
 	case "$fw" in *"$NL"*) recs="$NL${fw#*"$NL"}$NL" ;; esac
 	fw=${fw%%"$NL"*}
+	# A WED has the version of its Ethernet SoC (mtk_wed_add_hw()). Where
+	# the SoC is not one of these, the debugfs files tell: rxinfo comes
+	# with v2 and rro with v3, but a missing file proves nothing (null).
+	case "$1" in
+		*mt7622*) soc=1 ;;
+		*mt7981*|*mt7986*) soc=2 ;;
+		*mt7988*) soc=3 ;;
+		*) soc= ;;
+	esac
 	for d in "$DBG"/wed[0-9]*; do
 		[ -d "$d" ] || continue
 		id=${d##*/wed}
-		ver=1
-		[ -e "$d/rxinfo" ] && ver=2
-		[ -e "$d/rro" ] && ver=3
+		if [ -n "$soc" ]; then ver=$soc
+		elif [ -e "$d/rro" ]; then ver=3
+		elif [ -e "$d/rxinfo" ]; then ver=2
+		else ver=null
+		fi
 		if [ -s "$d/txinfo" ] || [ -n "$(head -c 1 "$d/txinfo" 2>/dev/null)" ]; then
 			attached=true
 		else
 			attached=false
 		fi
 		# Receive offload, and with it the WO firmware, runs only where the
-		# driver asked for it (mtk_wed_get_rx_capa()); its buffer manager
-		# base is set up then, so a zero base is a TX-only WED. A dump that
-		# cannot be read, or has no such base, leaves it unknown (null).
+		# driver asked for it (mtk_wed_get_rx_capa(); never on v1); its
+		# buffer manager base is set up then, so a zero base is a TX-only
+		# WED. A dump that cannot be read, or has no such base, leaves it
+		# unknown (null).
 		rx=false
-		if [ $attached = true ] && [ $ver -ge 2 ]; then
+		if [ $attached = true ] && [ $ver != 1 ]; then
 			rx=null
 			while read -r k v rest; do
 				[ "$k" = WED_RX_BM_BASE ] || continue
@@ -612,16 +625,17 @@ flow_json() {
 }
 
 get_status() {
-	local skip_ppe
+	local skip_ppe soc
 	skip_ppe=$(json_input "$1" skip_ppe)
 	rd "$R/tmp/sysinfo/model"; js "$RD"
 	printf '{"model":"%s",' "$JS"
 	js "$(board_compatible)"; printf '"compatible":"%s",' "$JS"
-	js "$(soc_compatible)"; printf '"soc":"%s",' "$JS"
+	soc=$(soc_compatible)
+	js "$soc"; printf '"soc":"%s",' "$JS"
 	cpu_json; printf ','
 	# The page gets these counters from the same snapshot as its flow rows.
 	if [ "$skip_ppe" = true ]; then printf '"ppe":[]'; else ppe_json; fi
-	printf ','; wed_json
+	printf ','; wed_json "$soc"
 	printf ','; wed_param_json
 	printf ','; flow_json
 	printf '}'
