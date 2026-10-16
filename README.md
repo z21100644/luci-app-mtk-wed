@@ -20,9 +20,10 @@ MediaTek Filogic（MT798x）的 LuCI 硬體加速狀態頁，適用主線 OpenWr
   埠名稱以該埠支援的最高速率標示（讀取 `ethtool`，未安裝時依 DT 的 `phy-mode` 推算）。
 - CPU：型號、溫度、調速器與最高頻率（設定會在重新開機後保留）、頻率歷史。
 - 硬體加速：
-  - 每個 PPE 的綁定狀態與負責的連接埠，以及 `/sys/kernel/debug/ppeN` 的完整流量表。
+  - 所有 PPE 合計的綁定狀態，以及 `/sys/kernel/debug/ppeN` 的完整流量表；各 GDM 標示所用的 PPE。
     流量表每 20 秒讀取一次，篩選與分頁在後端進行；其他狀態每 5 秒更新，頁面在背景時暫停。
-  - 每個 WED 是否連接 Wi-Fi、WED 版本與 WO 韌體版本。
+  - WED 版本與連接數，每個 WED 是收發或僅發送卸載，以及它所載入 WO 韌體的建置時間
+    （WO 韌體本身沒有版本號）。
   - 硬體流量卸載開關（`firewall.@defaults[0].flow_offloading_hw`）。
   - Wi-Fi 加速開關：在 `/etc/modules.conf` 寫入 `options <驅動> wed_enable=Y`，
     重新開機後生效。驅動依實際綁定無線網卡的 mt76 模組決定（`mt7915e` 或 `mt7996e`）；

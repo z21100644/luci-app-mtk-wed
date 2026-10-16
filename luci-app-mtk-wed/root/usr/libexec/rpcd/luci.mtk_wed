@@ -455,29 +455,49 @@ get_ppe_entries() {
 
 WO_CACHE="$STATE/wo-firmware"
 
-# The WO firmware version is only logged at boot; keep it once seen, since the
-# kernel log ring buffer drops it on a long-running router.
+# The WO firmware is logged only when a WED attaches, right after that WED's
+# "attaching wed device N" line: mtk_wed_attach() holds hw_lock across both,
+# so the lines of two WEDs never interleave. What was seen is kept, since
+# the kernel log ring buffer drops it on a long-running router.
+# Prints "<version>|<build>" of the last one logged, then "<wed>|<version>|<build>"
+# for each WED it was logged for.
 wo_firmware() {
-	local v cached stamp tmp
+	local top= stamp= l recs= seen= out tmp
 	clock_now
 	if [ -r "$WO_CACHE" ]; then
-		{ IFS= read -r cached; read -r stamp; } < "$WO_CACHE"
+		{
+			IFS= read -r top; read -r stamp
+			while IFS= read -r l; do recs="$recs$l$NL"; seen="$seen@$l$NL"; done
+		} < "$WO_CACHE"
 		case "$stamp" in
 			''|*[!0-9]*) ;;
 			*) if [ -n "$NOW" ] && [ "$NOW" -ge "$stamp" ] && [ $((NOW - stamp)) -lt 60 ]; then
-				printf '%s' "$cached"; return
+				printf '%s\n%s' "$top" "$recs"; return
 			fi ;;
 		esac
 	fi
-	v=$(dmesg 2>/dev/null | sed -n 's/.*MTK WED WO Firmware Version: \([^,]*\), Build Time: \(.*\)/\1|\2/p' | tail -n 1)
-	[ -n "$v" ] || v=$cached
+	# The cached lines come first, marked "@", so dmesg overrides them.
+	out=$({ printf '%s' "$seen"; dmesg 2>/dev/null; } |
+		awk -v top="$top" '
+			/^@[0-9]+\|/ { s = substr($0, 2); i = index(s, "|"); wo[substr(s, 1, i - 1)] = substr(s, i + 1); next }
+			/attaching wed device [0-9]+ version / { s = $0; sub(/.*attaching wed device /, "", s); sub(/ .*/, "", s); n = s; next }
+			/MTK WED WO Firmware Version: [^,]*, Build Time: / {
+				s = $0; sub(/.*MTK WED WO Firmware Version: /, "", s)
+				i = index(s, ", Build Time: ")
+				last = substr(s, 1, i - 1) "|" substr(s, i + 14)
+				if (n != "") wo[n] = last
+			}
+			END { print (last != "" ? last : top); for (k in wo) print k "|" wo[k] }')
+	top=${out%%"$NL"*}
+	recs=
+	case "$out" in *"$NL"*) recs="${out#*"$NL"}$NL" ;; esac
 	if [ -n "$NOW" ]; then
 		tmp=$(mktemp "$WO_CACHE.XXXXXX")
 		if [ -n "$tmp" ]; then
-			printf '%s\n%s\n' "$v" "$NOW" > "$tmp" && mv -f "$tmp" "$WO_CACHE" || rm -f "$tmp"
+			printf '%s\n%s\n%s' "$top" "$NOW" "$recs" > "$tmp" && mv -f "$tmp" "$WO_CACHE" || rm -f "$tmp"
 		fi
 	fi
-	printf '%s' "$v"
+	printf '%s\n%s' "$top" "$recs"
 }
 
 wed_module() {
@@ -516,8 +536,10 @@ wed_param_json() {
 }
 
 wed_json() {
-	local d id ver attached fw out="" first=1
+	local d id ver attached rx k v rest fw recs= wo out="" first=1
 	fw=$(wo_firmware)
+	case "$fw" in *"$NL"*) recs="$NL${fw#*"$NL"}$NL" ;; esac
+	fw=${fw%%"$NL"*}
 	for d in "$DBG"/wed[0-9]*; do
 		[ -d "$d" ] || continue
 		id=${d##*/wed}
@@ -529,12 +551,34 @@ wed_json() {
 		else
 			attached=false
 		fi
+		# Receive offload, and with it the WO firmware, runs only where the
+		# driver asked for it (mtk_wed_get_rx_capa()); its buffer manager
+		# base is set up then, so a zero base is a TX-only WED.
+		rx=false
+		if [ $attached = true ] && [ $ver -ge 2 ]; then
+			while read -r k v rest; do
+				[ "$k" = WED_RX_BM_BASE ] || continue
+				case "$v" in *[!0-9a-fA-F]*|'') ;; *[1-9a-fA-F]*) rx=true ;; esac
+				break
+			done 2>/dev/null < "$d/rxinfo"
+		fi
+		wo=
+		case "$recs" in *"$NL$id|"*) wo=${recs#*"$NL$id|"}; wo=${wo%%"$NL"*} ;; esac
 		[ $first -eq 1 ] || out="$out,"
 		first=0
-		out="$out{\"id\":$id,\"version\":$ver,\"attached\":$attached}"
+		wo_json "$wo"
+		out="$out{\"id\":$id,\"version\":$ver,\"attached\":$attached,\"rx\":$rx,$WJ}"
 	done
-	printf '"wed":[%s],"wo_firmware":"%s","wo_build":"%s"' "$out" \
-		"$(json_str "${fw%%|*}")" "$(json_str "$(printf '%s' "$fw" | sed -n 's/.*|//p')")"
+	wo_json "$fw"
+	printf '"wed":[%s],%s' "$out" "$WJ"
+}
+
+# wo_json <version>|<build>: the two JSON members in $WJ; no "|", no build.
+wo_json() {
+	local ver build=
+	js "${1%%|*}"; ver=$JS
+	case "$1" in *"|"*) js "${1#*|}"; build=$JS ;; esac
+	WJ="\"wo_firmware\":\"$ver\",\"wo_build\":\"$build\""
 }
 
 # ── Flow offload ────────────────────────────────────────────────────────

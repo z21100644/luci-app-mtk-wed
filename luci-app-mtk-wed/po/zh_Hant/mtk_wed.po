@@ -180,32 +180,26 @@ msgstr "重新開機後生效"
 msgid "Saved. Reboot the router to apply the Wi-Fi acceleration change."
 msgstr "已儲存。請重新開機路由器，讓 Wi-Fi 加速設定生效。"
 
-msgid "Bound share"
-msgstr "綁定率"
-
 msgid "Bound"
 msgstr "已綁定"
 
 msgid "Unbound"
 msgstr "未綁定"
 
-msgid "WED Engines"
-msgstr "WED 引擎"
+msgid "Total"
+msgstr "總計"
 
-msgid "Version"
-msgstr "版本"
+msgid "Version / attached"
+msgstr "版本 / 已連接"
 
-msgid "Wi-Fi device"
-msgstr "Wi-Fi 裝置"
+msgid "TX + RX"
+msgstr "收發"
 
-msgid "Attached"
-msgstr "已連接"
+msgid "TX only"
+msgstr "僅發送"
 
 msgid "Not attached"
 msgstr "未連接"
-
-msgid "WO firmware"
-msgstr "WO 韌體"
 
 msgid "Built %s"
 msgstr "建置於 %s"

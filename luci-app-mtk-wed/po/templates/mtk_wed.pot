@@ -179,31 +179,25 @@ msgstr ""
 msgid "Saved. Reboot the router to apply the Wi-Fi acceleration change."
 msgstr ""
 
-msgid "Bound share"
-msgstr ""
-
 msgid "Bound"
 msgstr ""
 
 msgid "Unbound"
 msgstr ""
 
-msgid "WED Engines"
+msgid "Total"
 msgstr ""
 
-msgid "Version"
+msgid "Version / attached"
 msgstr ""
 
-msgid "Wi-Fi device"
+msgid "TX + RX"
 msgstr ""
 
-msgid "Attached"
+msgid "TX only"
 msgstr ""
 
 msgid "Not attached"
-msgstr ""
-
-msgid "WO firmware"
 msgstr ""
 
 msgid "Built %s"

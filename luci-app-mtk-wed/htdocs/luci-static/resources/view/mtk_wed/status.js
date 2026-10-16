@@ -72,11 +72,8 @@ function gdmPorts(gdm, ports) {
 
 /* mtk_eth_soc.c (ppe_idx) gives GDM n its own PPE when the SoC has one, three
  * on MT7988 and two on MT7981/MT7986/MT7987, and sends the rest to PPE0. */
-function ppePorts(id, ports, ppeNum) {
-	var names = (ports || []).filter(function(p) {
-		return hasGdm(p) && (Number(p.gdm) < ppeNum ? Number(p.gdm) : 0) === Number(id);
-	}).map(portName);
-	return names.length ? names.join(' · ') : gdmLabel(id);
+function gdmPpe(gdm, ppeNum) {
+	return 'PPE' + (Number(gdm) < ppeNum ? Number(gdm) : 0);
 }
 
 /* ── Formatting ── */
@@ -174,8 +171,8 @@ function socName(s) {
 
 /* The WO firmware trailer holds no real version, only a placeholder such as
  * "____000000" or "DEV_000000"; its build time tells the firmwares apart. */
-function woFirmware(st) {
-	var ver = String(st.wo_firmware || '').trim(), built = String(st.wo_build || '').trim();
+function woFirmware(w) {
+	var ver = String(w.wo_firmware || '').trim(), built = String(w.wo_build || '').trim();
 	var m = /^(\d{4})(\d\d)(\d\d)(\d\d)(\d\d)(\d\d)$/.exec(built);
 	if (m) built = m[1] + '-' + m[2] + '-' + m[3] + ' ' + m[4] + ':' + m[5] + ':' + m[6];
 	if (!built) return ver || 'N/A';
@@ -418,46 +415,46 @@ function renderSwitches(st, known) {
 	return E('div', { 'class': 'ai-offload-controls ai-grid ai-grid--2' }, [ flow, wed ]);
 }
 
-function renderEngines(st, pt) {
+/* One card for all PPEs and one for all WEDs, side by side. */
+function renderEngines(st) {
 	var known = Array.isArray(st.ppe), ppe = known ? st.ppe : [];
 	var wed = Array.isArray(st.wed) ? st.wed : [];
-	var blocks = [];
-	if (ppe.length) {
-		blocks.push(E('div', { 'class': 'ai-subhead' }, _('PPE Engines')));
-		blocks.push(E('div', { 'class': 'ai-grid ai-grid--3' }, ppe.map(function(p) {
-			var pct = p.total ? p.bound / p.total * 100 : 0;
-			return aui.card({
-				name: 'PPE' + p.id, tag: ppePorts(p.id, pt && pt.ports, ppe.length), accent: 'var(--ai-npu)',
-				body: [
-					aui.bar({ pct: pct, accent: 'var(--ai-npu)', title: _('Bound share'), right: p.total ? aui.fmtPct(pct, 1) : '—' }),
-					aui.row(_('Bound'), String(p.bound || 0)),
-					aui.row(_('Unbound'), String(p.unbound || 0)),
-					aui.row('IPv4 / IPv6', (p.ipv4 || 0) + ' / ' + (p.ipv6 || 0))
-				]
-			});
-		})));
+	var cards = [];
+	/* Before the first PPE reply the counts are unknown, not zero. */
+	if (ppe.length || (!known && wed.length)) {
+		var sum = { bound: 0, total: 0, unbound: 0, ipv4: 0, ipv6: 0 }, u = st.ppeFailed ? '—' : '…';
+		ppe.forEach(function(p) { Object.keys(sum).forEach(function(k) { sum[k] += p[k] || 0; }); });
+		cards.push(aui.card({
+			name: _('PPE Engines'), tag: ppe.map(function(p) { return 'PPE' + p.id; }).join(' + '), accent: 'var(--ai-npu)',
+			body: [
+				aui.row(_('Bound'), known ? String(sum.bound) : u),
+				aui.row(_('Total'), known ? String(sum.total) : u),
+				aui.row(_('Unbound'), known ? String(sum.unbound) : u),
+				aui.row('IPv4 / IPv6', known ? sum.ipv4 + ' / ' + sum.ipv6 : u)
+			]
+		}));
 	}
 	if (wed.length) {
-		blocks.push(E('div', { 'class': 'ai-subhead' }, _('WED Engines')));
-		blocks.push(E('div', { 'class': 'ai-grid ai-grid--3' }, wed.map(function(w) {
-			return aui.card({
-				name: 'WED' + w.id, tag: w.attached ? _('ACTIVE') : _('IDLE'),
-				accent: w.attached ? 'var(--ds-ok)' : 'var(--ds-border-strong)',
-				body: [
-					aui.row(_('Version'), 'v' + w.version),
-					aui.row(_('Wi-Fi device'), w.attached ? _('Attached') : _('Not attached')),
-					aui.row(_('WO firmware'), woFirmware(st))
-				]
-			});
-		})));
+		var attached = wed.filter(function(w) { return w.attached; }).length;
+		var versions = wed.map(function(w) { return 'v' + w.version; }).filter(function(v, i, a) { return a.indexOf(v) === i; });
+		/* WO runs only where the WED also offloads receiving; a TX-only WED
+		 * (the second PCIe link of an MT7996) has none. */
+		cards.push(aui.card({
+			name: 'WED', tag: attached ? _('ACTIVE') : _('IDLE'),
+			accent: attached ? 'var(--ds-ok)' : 'var(--ds-border-strong)',
+			body: [ aui.row(_('Version / attached'), versions.join(' / ') + ' · ' + attached + ' / ' + wed.length) ].concat(wed.map(function(w) {
+				return aui.row('WED' + w.id, !w.attached ? _('Not attached') : w.rx ? _('TX + RX') + ' · WO ' + woFirmware(w) : _('TX only'));
+			}))
+		}));
 	}
-	if (!blocks.length) blocks.push(aui.empty(!known ? (st.ppeFailed ? _('Unknown') : _('Loading…')) : !Array.isArray(st.wed) ? _('Unknown')
-		: _('No PPE or WED debugfs entries were found. Is debugfs mounted?')));
-	return E('div', {}, blocks);
+	if (!cards.length) return aui.empty(!known ? (st.ppeFailed ? _('Unknown') : _('Loading…')) : !Array.isArray(st.wed) ? _('Unknown')
+		: _('No PPE or WED debugfs entries were found. Is debugfs mounted?'));
+	return E('div', { 'class': 'ai-grid ai-grid--2' }, cards);
 }
 
 function renderMacs(ms, pt, st) {
 	ms = ms || {};
+	var ppeNum = st && Array.isArray(st.ppe) ? st.ppe.length : 0;
 	var head = [ E('div', { 'class': 'ai-subhead' }, _('MAC Counters (GDM)')) ];
 	if (!ms.available) {
 		head.push(aui.empty(ms.reason === 'ethtool_missing'
@@ -475,7 +472,7 @@ function renderMacs(ms, pt, st) {
 		  [ 'rx_flow_control_packets', _('Flow control frames') ] ].forEach(function(k) {
 			if (m[k[0]] > 0) body.push(aui.row(k[1], aui.fmtK(m[k[0]]), k[0] === 'rx_flow_control_packets' ? null : 'ai-err'));
 		});
-		return aui.card({ name: gdmLabel(m.gdm), tag: gdmPorts(m.gdm, pt && pt.ports) + ' · ' + m.netdev,
+		return aui.card({ name: gdmLabel(m.gdm), tag: gdmPorts(m.gdm, pt && pt.ports) + ' · ' + m.netdev + (ppeNum ? ' · ' + gdmPpe(m.gdm, ppeNum) : ''),
 			accent: 'var(--ai-npu)', body: body });
 	})));
 	return E('div', {}, head);
@@ -681,7 +678,7 @@ return view.extend({
 				body: E('div', {}, [
 					E('div', { 'id': 'mtkw-tiles' }),
 					E('div', { 'id': 'mtkw-switches', 'style': 'margin-top:var(--ds-sp-3)' }),
-					E('div', { 'id': 'mtkw-engines' }),
+					E('div', { 'id': 'mtkw-engines', 'style': 'margin-top:var(--ds-sp-2)' }),
 					E('div', { 'id': 'mtkw-macs', 'style': 'margin-top:var(--ds-sp-2)' })
 				]) }),
 			E('div', { 'id': 'mtkw-wifi' }),
@@ -699,7 +696,8 @@ return view.extend({
 			lastStatus.ppeFailed = !!flowData.error;
 			syncPpeFilter(lastStatus.ppe);
 			replace('mtkw-tiles', renderTiles(lastStatus));
-			replace('mtkw-engines', renderEngines(lastStatus, lastPorts));
+			replace('mtkw-engines', renderEngines(lastStatus));
+			replace('mtkw-macs', renderMacs(lastMacGood, lastPorts, lastStatus));
 		}
 		var refreshFlows = function(live) {
 			if (!statusReady || stopDetached()) return Promise.resolve();
@@ -789,7 +787,7 @@ return view.extend({
 				if (!stErr && !switchesKnown) { replace('mtkw-switches', renderSwitches(st, true)); switchesKnown = true; }
 				else if (!stErr && fresh) { setSwitch('mtkw-flow', flowState(st)); setSwitch('mtkw-wed', wedState(st)); }
 				else if (first) replace('mtkw-switches', renderSwitches(st, false));
-				replace('mtkw-engines', renderEngines(st, pt));
+				replace('mtkw-engines', renderEngines(st));
 				replace('mtkw-macs', renderMacs(ms, pt, st));
 				replace('mtkw-wifi', renderWifi(d[3], st));
 				if (!err) updated.textContent = _('Updated %s').format(new Date().toLocaleTimeString());
