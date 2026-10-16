@@ -207,6 +207,9 @@ msgstr "未連接"
 msgid "WO firmware"
 msgstr "WO 韌體"
 
+msgid "Built %s"
+msgstr "建置於 %s"
+
 msgid "No PPE or WED debugfs entries were found. Is debugfs mounted?"
 msgstr "找不到 PPE 或 WED 的 debugfs 資料，請確認 debugfs 已掛載。"
 

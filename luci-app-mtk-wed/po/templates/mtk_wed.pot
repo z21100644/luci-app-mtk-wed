@@ -206,6 +206,9 @@ msgstr ""
 msgid "WO firmware"
 msgstr ""
 
+msgid "Built %s"
+msgstr ""
+
 msgid "No PPE or WED debugfs entries were found. Is debugfs mounted?"
 msgstr ""
 

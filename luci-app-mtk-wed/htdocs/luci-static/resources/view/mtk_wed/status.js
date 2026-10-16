@@ -172,6 +172,17 @@ function socName(s) {
 	return s ? String(s).replace(/^[^,]*,/, '').toUpperCase() : '';
 }
 
+/* The WO firmware trailer holds no real version, only a placeholder such as
+ * "____000000" or "DEV_000000"; its build time tells the firmwares apart. */
+function woFirmware(st) {
+	var ver = String(st.wo_firmware || '').trim(), built = String(st.wo_build || '').trim();
+	var m = /^(\d{4})(\d\d)(\d\d)(\d\d)(\d\d)(\d\d)$/.exec(built);
+	if (m) built = m[1] + '-' + m[2] + '-' + m[3] + ' ' + m[4] + ':' + m[5] + ':' + m[6];
+	if (!built) return ver || 'N/A';
+	built = _('Built %s').format(built);
+	return /^[A-Za-z_]*0+$/.test(ver) || !ver ? built : ver + ' · ' + built;
+}
+
 function renderCpuInfo(st) {
 	var c = (st && st.cpu) || {};
 	return aui.card({
@@ -435,7 +446,7 @@ function renderEngines(st, pt) {
 				body: [
 					aui.row(_('Version'), 'v' + w.version),
 					aui.row(_('Wi-Fi device'), w.attached ? _('Attached') : _('Not attached')),
-					aui.row(_('WO firmware'), st.wo_firmware || 'N/A')
+					aui.row(_('WO firmware'), woFirmware(st))
 				]
 			});
 		})));
