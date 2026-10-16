@@ -281,20 +281,22 @@ ppe_json() {
 #   etype=%04x vlan=%d,%d ib1=%08x ib2=%08x packets=%llu bytes=%llu
 get_ppe_entries() {
 	local d id page= state= type_filter= ppe_filter= result args files=""
-	local snapshot=0 ttl=20 refresh= stamp generation saved key cached_key cached_json tmp age=0
-	local page_kind= state_kind= type_kind= ppe_kind= refresh_kind=
+	local snapshot=0 ttl=20 refresh= interval= stamp generation saved key cached_key cached_json tmp age=0
+	local page_kind= state_kind= type_kind= ppe_kind= refresh_kind= interval_kind=
 	local query_cache="$STATE/ppe.query" meta_prefix= meta_suffix=
 	# jsonfilter quotes exported strings for shell evaluation. Names and
 	# expressions are fixed here; user input is only parsed as JSON data.
 	args=$(jsonfilter -s "$1" -e 'page=@.page' -e 'state=@.state' \
-		-e 'type_filter=@.type' -e 'ppe_filter=@.ppe' -e 'refresh=@.refresh' \
+		-e 'type_filter=@.type' -e 'ppe_filter=@.ppe' -e 'refresh=@.refresh' -e 'interval=@.interval' \
 		-t 'page_kind=@.page' -t 'state_kind=@.state' -t 'type_kind=@.type' \
-		-t 'ppe_kind=@.ppe' -t 'refresh_kind=@.refresh' 2>/dev/null)
+		-t 'ppe_kind=@.ppe' -t 'refresh_kind=@.refresh' -t 'interval_kind=@.interval' 2>/dev/null)
 	eval "$args"
 	case "$page_kind" in ''|null|string|int) ;; *) printf '{"error":"invalid page"}'; return ;; esac
 	case "$state_kind" in ''|null|string) ;; *) printf '{"error":"invalid state"}'; return ;; esac
 	case "$type_kind" in ''|null|string) ;; *) printf '{"error":"invalid type"}'; return ;; esac
 	case "$ppe_kind" in ''|null|string|int) ;; *) printf '{"error":"invalid ppe"}'; return ;; esac
+	case "$interval_kind" in ''|null|int) ;; *) printf '{"error":"invalid interval"}'; return ;; esac
+	case "$interval" in *[!0-9]*|?????*) printf '{"error":"invalid interval"}'; return ;; esac
 	# No page keeps the original capped response for existing RPC clients.
 	case "$page" in
 		'') page=-1 ;;
@@ -311,10 +313,19 @@ get_ppe_entries() {
 		return
 	fi
 	if [ "$page" -ge 0 ]; then
-		# Live polls come every 20 s from each open page. A snapshot younger
-		# than 18 s is shared between pages, while one page, even with a
-		# second of timer or request jitter, still reads fresh tables.
-		case "$refresh_kind:$refresh" in boolean:1|string:true) ttl=18 ;; esac
+		# Live polls come from each open page every "interval" seconds (20
+		# when not given; at least 5, as a full table takes a while to copy).
+		# A snapshot two seconds younger is shared between pages, while one
+		# page, even with a second of timer or request jitter, still reads
+		# fresh tables; it is never older than the 20 s that clicks accept.
+		case "$refresh_kind:$refresh" in
+			boolean:1|string:true)
+				[ "${interval:-0}" -gt 0 ] || interval=20
+				[ "$interval" -ge 5 ] || interval=5
+				[ "$interval" -le 20 ] || interval=20
+				ttl=$((interval - 2))
+				;;
+		esac
 		if ! ppe_snapshot "$files" "$ttl"; then
 			printf '{"available":false,"entries":[],"ppe":[],"error":"cannot snapshot PPE tables"}'
 			return
@@ -1078,7 +1089,7 @@ set_cpu_settings() {
 
 case "$1" in
 	list)
-		printf '{"getStatus":{"skip_ppe":true},"getPorts":{},"getPpeEntries":{"page":0,"state":"","type":"","ppe":"","refresh":true},"getMacStats":{},"getWifiStats":{},"setFlowOffload":{"enabled":0},"setWedEnable":{"enabled":0},"setCpuSettings":{"governor":"","freq":0}}'
+		printf '{"getStatus":{"skip_ppe":true},"getPorts":{},"getPpeEntries":{"page":0,"state":"","type":"","ppe":"","refresh":true,"interval":0},"getMacStats":{},"getWifiStats":{},"setFlowOffload":{"enabled":0},"setWedEnable":{"enabled":0},"setCpuSettings":{"governor":"","freq":0}}'
 		;;
 	call)
 		[ -d "$STATE" ] || mkdir -p -m 0700 "$STATE" 2>/dev/null

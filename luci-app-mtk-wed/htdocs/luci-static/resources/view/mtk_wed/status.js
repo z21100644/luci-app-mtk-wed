@@ -17,7 +17,7 @@ var E = aui.E;
 
 var callStatus = rpc.declare({ object: 'luci.mtk_wed', method: 'getStatus', params: [ 'skip_ppe' ], reject: true });
 var callPorts = rpc.declare({ object: 'luci.mtk_wed', method: 'getPorts', reject: true });
-var callPpeEntries = rpc.declare({ object: 'luci.mtk_wed', method: 'getPpeEntries', params: [ 'page', 'state', 'type', 'ppe', 'refresh' ], nobatch: true, reject: true });
+var callPpeEntries = rpc.declare({ object: 'luci.mtk_wed', method: 'getPpeEntries', params: [ 'page', 'state', 'type', 'ppe', 'refresh', 'interval' ], nobatch: true, reject: true });
 var callMacStats = rpc.declare({ object: 'luci.mtk_wed', method: 'getMacStats', reject: true });
 var callWifiStats = rpc.declare({ object: 'luci.mtk_wed', method: 'getWifiStats', reject: true });
 var callSetFlowOffload = rpc.declare({ object: 'luci.mtk_wed', method: 'setFlowOffload', params: [ 'enabled' ], reject: true });
@@ -70,10 +70,19 @@ function gdmPorts(gdm, ports) {
 	return names.length ? names.join(' · ') : gdmLabel(gdm);
 }
 
-/* mtk_eth_soc.c (ppe_idx) gives GDM n its own PPE when the SoC has one, three
- * on MT7988 and two on MT7981/MT7986/MT7987, and sends the rest to PPE0. */
+/* The PPEs a SoC has (mtk_soc_data.ppe_num), not the ones whose debugfs
+ * could be read: three on MT7988, two on MT7981/MT7986/MT7987. */
+function socPpeNum(soc) {
+	soc = String(soc || '');
+	return /mt7988/.test(soc) ? 3 : /mt798[167]/.test(soc) ? 2 : 0;
+}
+
+/* mtk_eth_soc.c (ppe_idx): GDM3 and GDM2 have their own PPE when the SoC has
+ * that many; the rest use PPE0. Without a known SoC the PPE is unknown. */
 function gdmPpe(gdm, ppeNum) {
-	return 'PPE' + (Number(gdm) < ppeNum ? Number(gdm) : 0);
+	if (!ppeNum) return 'PPE ?';
+	gdm = Number(gdm);
+	return 'PPE' + (ppeNum >= 3 && gdm === 2 ? 2 : ppeNum >= 2 && gdm === 1 ? 1 : 0);
 }
 
 /* ── Formatting ── */
@@ -454,7 +463,7 @@ function renderEngines(st) {
 
 function renderMacs(ms, pt, st) {
 	ms = ms || {};
-	var ppeNum = st && Array.isArray(st.ppe) ? st.ppe.length : 0;
+	var ppeNum = socPpeNum(st && st.soc);
 	var head = [ E('div', { 'class': 'ai-subhead' }, _('MAC Counters (GDM)')) ];
 	if (!ms.available) {
 		head.push(aui.empty(ms.reason === 'ethtool_missing'
@@ -472,7 +481,7 @@ function renderMacs(ms, pt, st) {
 		  [ 'rx_flow_control_packets', _('Flow control frames') ] ].forEach(function(k) {
 			if (m[k[0]] > 0) body.push(aui.row(k[1], aui.fmtK(m[k[0]]), k[0] === 'rx_flow_control_packets' ? null : 'ai-err'));
 		});
-		return aui.card({ name: gdmLabel(m.gdm), tag: gdmPorts(m.gdm, pt && pt.ports) + ' · ' + m.netdev + (ppeNum ? ' · ' + gdmPpe(m.gdm, ppeNum) : ''),
+		return aui.card({ name: gdmLabel(m.gdm), tag: gdmPorts(m.gdm, pt && pt.ports) + ' · ' + m.netdev + ' · ' + gdmPpe(m.gdm, ppeNum),
 			accent: 'var(--ai-npu)', body: body });
 	})));
 	return E('div', {}, head);
@@ -523,6 +532,17 @@ function renderWifi(wf, st) {
 /* ── PPE flow table ── */
 var PAGE_SIZE = 50;
 var flowRefresh = function() {};
+/* Seconds between PPE table reads. It is a view preference, so it is kept
+ * in this browser only and needs no write access to the router. */
+var PPE_INTERVALS = [ 5, 10, 20, 30, 60 ], PPE_INTERVAL_KEY = 'luci-app-mtk-wed.ppe-interval';
+var ppeInterval = (function() {
+	try {
+		var v = Number(window.localStorage.getItem(PPE_INTERVAL_KEY));
+		if (PPE_INTERVALS.indexOf(v) >= 0) return v;
+	} catch (e) {}
+	return 10;
+})();
+var ppeIntervalSet = function() {};
 var flowFilter = { state: '', type: '', ppe: '' }, flowPage = 0, flowData = { entries: [] };
 
 function filteredFlows() {
@@ -625,7 +645,12 @@ function renderFlowTable() {
 				'click': function() {
 					var pages = flowPages();
 					if (flowPage + 1 < pages) { flowPage++; updatePager(pages); flowRefresh(); }
-				} }, '›')
+				} }, '›'),
+			E('select', { 'id': 'mtkw-ppe-interval', 'aria-label': _('Refresh interval'), 'title': _('Refresh interval'),
+				'style': 'margin-left:auto', 'change': function(ev) { ppeIntervalSet(Number(ev.target.value)); } },
+				PPE_INTERVALS.map(function(n) {
+					return E('option', { 'value': n, 'selected': n === ppeInterval ? '' : null }, _('Every %d s').format(n));
+				}))
 		]),
 		E('div', { 'class': 'ai-table-wrap' }, [
 			E('table', { 'class': 'ai-table ai-table--mono ai-table--stack', 'id': 'mtkw-flows' }, [
@@ -697,14 +722,13 @@ return view.extend({
 			syncPpeFilter(lastStatus.ppe);
 			replace('mtkw-tiles', renderTiles(lastStatus));
 			replace('mtkw-engines', renderEngines(lastStatus));
-			replace('mtkw-macs', renderMacs(lastMacGood, lastPorts, lastStatus));
 		}
 		var refreshFlows = function(live) {
 			if (!statusReady || stopDetached()) return Promise.resolve();
 			if (document.hidden) return Promise.resolve();
 			if (ppePending) return ppePending;
 			var query = flowQuery(), key = JSON.stringify(query);
-			ppePending = callPpeEntries.apply(null, query.concat([ live === true ])).then(function(data) {
+			ppePending = callPpeEntries.apply(null, query.concat([ live === true, ppeInterval ])).then(function(data) {
 				if (!isLive() || key !== JSON.stringify(flowQuery())) return;
 				/* Backend errors are fixed English strings with translations. */
 				if (!data || data.error) throw new Error(data && data.error ? _(data.error) : _('PPE table unavailable'));
@@ -799,6 +823,14 @@ return view.extend({
 		/* After a save: a new status read, behind any one in flight. */
 		statusRefresh = function() { var p = pending; return p ? p.then(refresh, refresh) : refresh(); };
 		var pollPpe = function() { return refreshFlows(true); };
+		ppeIntervalSet = function(n) {
+			if (PPE_INTERVALS.indexOf(n) < 0 || !started || stopDetached()) return;
+			ppeInterval = n;
+			try { window.localStorage.setItem(PPE_INTERVAL_KEY, String(n)); } catch (e) {}
+			poll.remove(pollPpe);
+			poll.add(pollPpe, n);
+			refreshFlows(true);
+		};
 		/* Start after LuCI has inserted the render result. From then on a
 		 * disconnected page is finished, even if its first RPC is pending. */
 		function stopDetached() {
@@ -823,7 +855,7 @@ return view.extend({
 			});
 		}, 0);
 		poll.add(refresh, 5);
-		poll.add(pollPpe, 20);
+		poll.add(pollPpe, ppeInterval);
 		return page;
 	},
 

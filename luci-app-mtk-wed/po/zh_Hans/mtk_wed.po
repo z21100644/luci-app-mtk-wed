@@ -357,6 +357,12 @@ msgstr "无法从 luci.mtk_wed 后端读取状态：%s"
 msgid "Updated %s"
 msgstr "更新于 %s"
 
+msgid "Refresh interval"
+msgstr "刷新间隔"
+
+msgid "Every %d s"
+msgstr "每 %d 秒"
+
 msgid "MediaTek SoC"
 msgstr "MediaTek SoC"
 

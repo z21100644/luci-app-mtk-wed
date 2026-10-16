@@ -356,6 +356,12 @@ msgstr ""
 msgid "Updated %s"
 msgstr ""
 
+msgid "Refresh interval"
+msgstr ""
+
+msgid "Every %d s"
+msgstr ""
+
 msgid "MediaTek SoC"
 msgstr ""
 
