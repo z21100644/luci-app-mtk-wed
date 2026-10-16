@@ -454,7 +454,11 @@ function renderEngines(st) {
 			name: 'WED', tag: attached ? _('ACTIVE') : _('IDLE'),
 			accent: attached ? 'var(--ds-ok)' : 'var(--ds-border-strong)',
 			body: [ aui.row(_('Version / attached'), versions.join(' / ') + ' · ' + attached + ' / ' + wed.length) ].concat(wed.map(function(w) {
-				return aui.row('WED' + w.id, !w.attached ? _('Not attached') : w.rx ? _('TX + RX') + ' · WO ' + woFirmware(w) : _('TX only'));
+				/* rx is null when the register dump could not be read: say so,
+				 * and keep a WO firmware that was logged for this WED. */
+				var wo = w.wo_firmware || w.wo_build ? ' · WO ' + woFirmware(w) : '';
+				return aui.row('WED' + w.id, !w.attached ? _('Not attached') : w.rx === true ? _('TX + RX') + ' · WO ' + woFirmware(w)
+					: w.rx === false ? _('TX only') : _('TX, RX unknown') + wo);
 			}))
 		}));
 	}

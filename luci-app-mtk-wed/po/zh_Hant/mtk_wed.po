@@ -198,6 +198,9 @@ msgstr "收發"
 msgid "TX only"
 msgstr "僅發送"
 
+msgid "TX, RX unknown"
+msgstr "發送，接收未知"
+
 msgid "Not attached"
 msgstr "未連接"
 

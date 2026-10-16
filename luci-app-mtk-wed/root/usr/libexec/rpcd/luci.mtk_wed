@@ -564,12 +564,14 @@ wed_json() {
 		fi
 		# Receive offload, and with it the WO firmware, runs only where the
 		# driver asked for it (mtk_wed_get_rx_capa()); its buffer manager
-		# base is set up then, so a zero base is a TX-only WED.
+		# base is set up then, so a zero base is a TX-only WED. A dump that
+		# cannot be read, or has no such base, leaves it unknown (null).
 		rx=false
 		if [ $attached = true ] && [ $ver -ge 2 ]; then
+			rx=null
 			while read -r k v rest; do
 				[ "$k" = WED_RX_BM_BASE ] || continue
-				case "$v" in *[!0-9a-fA-F]*|'') ;; *[1-9a-fA-F]*) rx=true ;; esac
+				case "$v" in *[!0-9a-fA-F]*|'') ;; *[1-9a-fA-F]*) rx=true ;; *) rx=false ;; esac
 				break
 			done 2>/dev/null < "$d/rxinfo"
 		fi

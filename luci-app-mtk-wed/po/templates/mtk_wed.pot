@@ -197,6 +197,9 @@ msgstr ""
 msgid "TX only"
 msgstr ""
 
+msgid "TX, RX unknown"
+msgstr ""
+
 msgid "Not attached"
 msgstr ""
 
