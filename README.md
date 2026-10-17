@@ -1,42 +1,54 @@
 # luci-app-mtk-wed
 
-MediaTek Filogic（MT798x）的 LuCI 硬體加速狀態頁，適用主線 OpenWrt。
-介面沿用 [luci-app-airoha](https://github.com/naoki66/luci-app-airoha) 的
-`luci-app-airoha-npu`（Apache-2.0），後端改讀主線 kernel 的 PPE、WED 與 mt76 介面。
+English | [繁體中文](README.zh-Hant.md)
 
-適用 MT7981、MT7986、MT7987、MT7988。PPE、WED、連接埠與 Wi-Fi 驅動都從系統自動偵測，
-不需要針對機型設定：
+A LuCI hardware offload status page for MediaTek Filogic (MT798x) on mainline OpenWrt.
+The interface follows `luci-app-airoha-npu` from
+[luci-app-airoha](https://github.com/naoki66/luci-app-airoha) (Apache-2.0); the backend
+reads the PPE, WED and mt76 interfaces of the mainline kernel instead.
 
-| SoC | PPE | WED | Wi-Fi 驅動 |
+Supports MT7981, MT7986, MT7987 and MT7988. The PPEs, WEDs, ports and Wi-Fi driver are
+detected from the system, so no per-board configuration is needed:
+
+| SoC | PPE | WED | Wi-Fi driver |
 | --- | --- | --- | --- |
-| MT7981 | 2 | 1（v2） | mt7915e（內建 WMAC） |
-| MT7986 | 2 | 2（v2） | mt7915e（內建 WMAC） |
-| MT7987 | 2 | 1（v3） | mt7996e（PCIe） |
-| MT7988 | 3 | 3（v3） | mt7996e（PCIe） |
+| MT7981 | 2 | 1 (v2) | mt7915e (built-in WMAC) |
+| MT7986 | 2 | 2 (v2) | mt7915e (built-in WMAC) |
+| MT7987 | 2 | 1 (v3) | mt7996e (PCIe) |
+| MT7988 | 3 | 3 (v3) | mt7996e (PCIe) |
 
-## 功能
+## Features
 
-- 乙太網路連接埠：連線狀態、速率、流量與錯誤計數，標示每個埠走哪個 GDM。
-  埠名稱以該埠支援的最高速率標示（讀取 `ethtool`，未安裝時依 DT 的 `phy-mode` 推算）。
-- CPU：型號、溫度、調速器與最高頻率（設定會在重新開機後保留）、頻率歷史。
-- 硬體加速：
-  - 所有 PPE 合計的綁定狀態與綁定率；各 GDM 標示所用的 PPE。
-  - WED 版本與連接數，每個 WED 是收發或僅發送卸載，以及它所載入 WO 韌體的建置時間
-    （WO 韌體本身沒有版本號）。
-  - 硬體流量卸載開關（`firewall.@defaults[0].flow_offloading_hw`）。
-  - Wi-Fi 加速開關：在 `/etc/modules.conf` 寫入 `options <驅動> wed_enable=Y`，
-    重新開機後生效。驅動依實際綁定無線網卡的 mt76 模組決定（`mt7915e` 或 `mt7996e`）；
-    主線 OpenWrt 預設沒有開啟 WED。
-  - GDM 的硬體 MAC 計數（需安裝 `ethtool`）。
-- Wi-Fi 各頻段的介面、用戶端數、重傳率、PHY 與預期速率、訊號；沒有無線網卡或沒有啟用的 AP 時不顯示。
-- PPE 流量表（頁面最下方）：`/sys/kernel/debug/ppeN` 的完整流量表，可依狀態、類型與 PPE 篩選，每頁 50 筆。
-  預設每 10 秒讀取一次，可在表格標題列改為 5～60 秒（存在瀏覽器中）；篩選與分頁在後端進行。
-- 其他狀態每 5 秒更新，頁面在背景時暫停。每個區塊都能點標題折疊，折疊後標題列顯示摘要
-  （已連線的埠數、CPU 頻率與溫度、已綁定的流量數、用戶端數），折疊狀態存在瀏覽器中。
+- Ethernet ports: link state, speed, traffic and error counters, and the GDM each port
+  goes through. Each port is labelled with the highest speed it supports (read with
+  `ethtool`, or worked out from the DT `phy-mode` when it is not installed).
+- CPU: model, temperature, governor and maximum frequency (the settings persist across
+  reboots), and the frequency history.
+- Hardware offload:
+  - Bound flows and bind rate over all PPEs; each GDM shows the PPE it uses.
+  - WED version and attachments, whether each WED offloads TX and RX or TX only, and the
+    build time of the WO firmware it loaded (the WO firmware itself has no version number).
+  - Hardware flow offload switch (`firewall.@defaults[0].flow_offloading_hw`).
+  - Wi-Fi acceleration switch: writes `options <driver> wed_enable=Y` to
+    `/etc/modules.conf`, applied after a reboot. The driver is the mt76 module actually
+    bound to the wireless card (`mt7915e` or `mt7996e`); mainline OpenWrt does not enable
+    WED by default.
+  - Hardware MAC counters of each GDM (needs `ethtool`).
+- Wi-Fi per band: interfaces, clients, retry rate, PHY and expected rates, signal. Hidden
+  when there is no wireless card or no AP is enabled.
+- PPE flow table (at the bottom of the page): the full flow table from
+  `/sys/kernel/debug/ppeN`, filtered by state, type and PPE, 50 entries per page. It is
+  read every 10 seconds by default; the interval can be set from 5 to 60 seconds in the
+  table's head (kept in the browser). Filtering and paging happen in the backend.
+- Everything else refreshes every 5 seconds and pauses while the page is in the
+  background. Every section folds from its title; a folded section shows a summary in its
+  head (ports up, CPU frequency and temperature, bound flows, clients), and the fold
+  state is kept in the browser.
 
-## 編譯
+## Building
 
-這是一般的 LuCI feed，套件不分 CPU 架構。在 OpenWrt SDK 或原始碼樹加入 feed：
+This is an ordinary LuCI feed, and the package is architecture-independent. Add the feed
+to an OpenWrt SDK or source tree:
 
 ```text
 src-git mtkwed https://github.com/z21100644/luci-app-mtk-wed.git
