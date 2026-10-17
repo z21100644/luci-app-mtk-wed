@@ -643,13 +643,18 @@ function flowPages() {
 }
 
 function updatePager(pages) {
-	/* A failed read keeps the page, not a range of rows it cannot show. */
-	var n = flowData.available === false ? 0 : flowMatched();
 	setText('mtkw-page', (flowPage + 1) + ' / ' + pages);
-	setText('mtkw-range', n ? _('%d–%d of %d').format(flowPage * PAGE_SIZE + 1, Math.min((flowPage + 1) * PAGE_SIZE, n), n) : '');
 	var prev = document.getElementById('mtkw-prev'), next = document.getElementById('mtkw-next');
 	if (prev) prev.disabled = flowPage === 0;
 	if (next) next.disabled = flowPage + 1 >= pages;
+}
+
+/* The rows on screen, so it is set where they are drawn: a page that was
+ * asked for and has not arrived is not shown yet. A failed read keeps the
+ * page, not a range of rows it cannot show. */
+function updateRange(page) {
+	var n = flowData.available === false ? 0 : flowMatched();
+	setText('mtkw-range', n ? _('%d–%d of %d').format(page * PAGE_SIZE + 1, Math.min((page + 1) * PAGE_SIZE, n), n) : '');
 }
 
 /* "Clear filters" is offered while any filter is set. */
@@ -683,6 +688,7 @@ function updateFlowTable() {
 		]));
 	});
 	updatePager(pages);
+	updateRange(flowPage);
 	var badge = document.getElementById('mtkw-flow-count');
 	if (badge) badge.textContent = flowCountText();
 }

@@ -552,13 +552,14 @@ wed_json() {
 	fw=$(wo_firmware)
 	case "$fw" in *"$NL"*) recs="$NL${fw#*"$NL"}$NL" ;; esac
 	fw=${fw%%"$NL"*}
-	# A WED has the version of its Ethernet SoC (mtk_wed_add_hw()). Where
-	# the SoC is not one of these, the debugfs files tell: rxinfo comes
-	# with v2 and rro with v3, but a missing file proves nothing (null).
+	# A WED has the version of its Ethernet SoC (mtk_wed_add_hw()); MT7987
+	# is v3 in OpenWrt's mtk_eth_soc patch. Where the SoC is not one of
+	# these, the debugfs files tell: rxinfo comes with v2 and rro with v3,
+	# but a missing file proves nothing (null).
 	case "$1" in
 		*mt7622*) soc=1 ;;
 		*mt7981*|*mt7986*) soc=2 ;;
-		*mt7988*) soc=3 ;;
+		*mt7987*|*mt7988*) soc=3 ;;
 		*) soc= ;;
 	esac
 	for d in "$DBG"/wed[0-9]*; do
