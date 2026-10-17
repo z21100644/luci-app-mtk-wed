@@ -38,6 +38,9 @@ msgstr ""
 msgid "Port data unavailable"
 msgstr ""
 
+msgid "%d / %d up"
+msgstr ""
+
 msgid "conservative"
 msgstr ""
 
@@ -78,6 +81,9 @@ msgid "CPU settings saved — they will persist after a reboot"
 msgstr ""
 
 msgid "Save"
+msgstr ""
+
+msgid "Saving…"
 msgstr ""
 
 msgid "CPU Control"
@@ -143,6 +149,9 @@ msgstr ""
 msgid "cores"
 msgstr ""
 
+msgid "%d / %d bound"
+msgstr ""
+
 msgid "Enabled"
 msgstr ""
 
@@ -177,6 +186,9 @@ msgid "takes effect after a reboot"
 msgstr ""
 
 msgid "Saved. Reboot the router to apply the Wi-Fi acceleration change."
+msgstr ""
+
+msgid "Bind rate"
 msgstr ""
 
 msgid "Bound"
@@ -284,6 +296,9 @@ msgstr ""
 msgid "TX"
 msgstr ""
 
+msgid "%d clients"
+msgstr ""
+
 msgid "PPE table unavailable"
 msgstr ""
 
@@ -330,6 +345,12 @@ msgid "Previous page"
 msgstr ""
 
 msgid "Next page"
+msgstr ""
+
+msgid "%d–%d of %d"
+msgstr ""
+
+msgid "Clear filters"
 msgstr ""
 
 msgid "MediaTek SoC Status"

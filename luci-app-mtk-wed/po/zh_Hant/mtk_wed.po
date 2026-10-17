@@ -39,6 +39,9 @@ msgstr "未連線"
 msgid "Port data unavailable"
 msgstr "無法取得連接埠資料"
 
+msgid "%d / %d up"
+msgstr "%d / %d 已連線"
+
 msgid "conservative"
 msgstr "保守"
 
@@ -80,6 +83,9 @@ msgstr "CPU 設定已儲存，重新開機後仍會保留"
 
 msgid "Save"
 msgstr "儲存"
+
+msgid "Saving…"
+msgstr "儲存中…"
 
 msgid "CPU Control"
 msgstr "CPU 控制"
@@ -144,6 +150,9 @@ msgstr "CPU 溫度"
 msgid "cores"
 msgstr "核心"
 
+msgid "%d / %d bound"
+msgstr "已綁定 %d / %d"
+
 msgid "Enabled"
 msgstr "已啟用"
 
@@ -179,6 +188,9 @@ msgstr "重新開機後生效"
 
 msgid "Saved. Reboot the router to apply the Wi-Fi acceleration change."
 msgstr "已儲存。請重新開機路由器，讓 Wi-Fi 加速設定生效。"
+
+msgid "Bind rate"
+msgstr "綁定率"
 
 msgid "Bound"
 msgstr "已綁定"
@@ -285,6 +297,9 @@ msgstr "訊號"
 msgid "TX"
 msgstr "傳送"
 
+msgid "%d clients"
+msgstr "%d 個用戶端"
+
 msgid "PPE table unavailable"
 msgstr "無法取得 PPE 流量表"
 
@@ -332,6 +347,12 @@ msgstr "上一頁"
 
 msgid "Next page"
 msgstr "下一頁"
+
+msgid "%d–%d of %d"
+msgstr "第 %d–%d 筆，共 %d 筆"
+
+msgid "Clear filters"
+msgstr "清除篩選"
 
 msgid "MediaTek SoC Status"
 msgstr "MediaTek SoC 狀態"

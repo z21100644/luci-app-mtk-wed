@@ -74,8 +74,22 @@ var COMPONENT_CSS = [
 
 	'.ai-section{margin:0 0 var(--ds-sp-5);padding:var(--ds-sp-4) var(--ds-sp-4) var(--ds-sp-3);border:1px solid var(--ds-border);border-radius:var(--ds-r-lg);background:var(--ds-surface);box-shadow:var(--ds-shadow-1)}',
 	'.ai-section-head{display:flex;flex-wrap:wrap;align-items:center;gap:var(--ds-sp-2);margin:0 0 var(--ds-sp-3);padding:0 0 var(--ds-sp-2);border-bottom:1px solid var(--ds-border)}',
-	'.ai-section-head h3{margin:0;font-size:var(--ds-fs-lg);font-weight:650;color:var(--ds-text)}',
+	/* Argon gives every h3 a full width and padding: the badges beside the
+	 * title would wrap below it. */
+	'.ai-section-head h3{margin:0;padding:0;width:auto;min-width:0;font-size:var(--ds-fs-lg);font-weight:650;color:var(--ds-text)}',
 	'.ai-section-head .ai-spacer{flex:1}',
+	'.ai-section-head select{width:auto;max-width:100%}',
+	/* The title is the fold button. Themes style every button (Bootstrap
+	 * gives it a gradient, border and padding): start from nothing. */
+	'.mtkw-page .ai-section-toggle{all:unset;box-sizing:border-box;display:inline-flex;align-items:center;gap:var(--ds-sp-2);cursor:pointer;color:inherit;font:inherit;border-radius:var(--ds-r-sm)}',
+	'.mtkw-page .ai-section-toggle::before{content:"";flex:0 0 auto;width:.42em;height:.42em;margin:0 .2em;border-right:2px solid var(--ds-text-muted);border-bottom:2px solid var(--ds-text-muted);transform:translateY(-.12em) rotate(45deg);transition:transform .15s}',
+	'.mtkw-page .ai-section-toggle[aria-expanded="false"]::before{transform:rotate(-45deg)}',
+	'.mtkw-page .ai-section-toggle:hover::before{border-color:var(--ds-text)}',
+	'.mtkw-page .ai-section-toggle:focus-visible{outline:2px solid var(--ds-primary);outline-offset:2px}',
+	/* Themes give buttons and sections a display of their own. */
+	'.mtkw-page [hidden]{display:none!important}',
+	'.ai-section[data-collapsed="true"]{padding-bottom:var(--ds-sp-4)}',
+	'.ai-section[data-collapsed="true"] .ai-section-head{margin-bottom:0;padding-bottom:0;border-bottom:0}',
 	'.ai-subhead{margin:var(--ds-sp-4) 0 var(--ds-sp-2);font-size:var(--ds-fs-base);font-weight:650}',
 	'.ai-subhead:first-of-type{margin-top:0}',
 	'.ai-hint{margin:0 0 var(--ds-sp-2);color:var(--ds-text-muted);font-size:var(--ds-fs-xs)}',
@@ -124,6 +138,10 @@ var COMPONENT_CSS = [
 	'.ai-badge--bnd{background:var(--ds-info-tint);color:var(--ai-npu);border:1px solid var(--ds-info-line)}',
 	'.ai-badge--unb{background:var(--ds-warn-tint);color:var(--ds-warn);border:1px solid var(--ds-warn-line)}',
 	'.ai-badge--v6{background:var(--ds-band6-tint);color:var(--ai-band-6);border:1px solid var(--ds-band6-line)}',
+	'.ai-badge:empty{display:none}',
+	/* What a folded section would show, in its head. */
+	'.ai-section-sum{display:none}',
+	'.ai-section[data-collapsed="true"] .ai-section-sum:not(:empty){display:inline-flex}',
 
 	'.ai-banner{display:flex;align-items:flex-start;gap:var(--ds-sp-2);margin:0 0 var(--ds-sp-2);padding:var(--ds-sp-2) var(--ds-sp-3);border:1px solid var(--ds-warn-line);border-left:3px solid var(--ds-warn);border-radius:var(--ds-r-md);background:var(--ds-warn-tint);color:var(--ds-warn);font-size:var(--ds-fs-sm)}',
 	'.ai-banner--error{border-color:var(--ds-error-line);border-left-color:var(--ds-error);background:var(--ds-error-tint);color:var(--ds-error)}',
@@ -172,6 +190,9 @@ var COMPONENT_CSS = [
 	'.ai-toggle input:checked+.track:before{transform:translateX(18px)}',
 	'.ai-toggle input:disabled+.track{opacity:.5}',
 	'.ai-toggle input:focus-visible+.track{box-shadow:0 0 0 3px var(--ds-focus-ring)}',
+	/* A change on its way to the router. */
+	'.ai-switch-row[data-busy="true"] .ai-toggle{cursor:progress}',
+	'.ai-switch-row[data-busy="true"] .ai-pill .dot{animation:ai-pulse 1s ease-in-out infinite}',
 
 	'.ai-btn{appearance:none;display:inline-flex;align-items:center;justify-content:center;gap:var(--ds-sp-1);min-height:26px;padding:0 var(--ds-sp-3);border:1px solid var(--ds-border-strong);border-radius:var(--ds-r-sm);background:var(--ds-surface-sunken);color:var(--ds-text);font:inherit;font-size:var(--ds-fs-sm);font-weight:600;cursor:pointer}',
 	'.ai-btn--primary{background:var(--ds-primary);border-color:var(--ds-primary);color:#fff}',
@@ -195,8 +216,13 @@ var COMPONENT_CSS = [
 	'.ai-offload-controls .ai-switch-row{grid-template-columns:minmax(0,1fr) auto}',
 	'.ai-flowbar{display:flex;flex-wrap:wrap;align-items:center;gap:var(--ds-sp-2);margin:0 0 var(--ds-sp-2)}',
 	'.ai-flowbar select{width:auto;min-width:8.5em;max-width:100%}',
-	'.ai-flowbar .ai-pager{display:inline-flex;align-items:center;gap:var(--ds-sp-1)}',
 	'.ai-flowbar .ai-spacer{flex:1}',
+	/* The flow table grows with the page: a box that scrolls inside the
+	 * scrolling page traps the wheel and hides the pager. */
+	'.ai-flows-wrap,.ai-port-table{max-height:none}',
+	'.ai-flowfoot{display:flex;flex-wrap:wrap;align-items:center;gap:var(--ds-sp-2);margin:var(--ds-sp-2) 0 0;font-size:var(--ds-fs-sm)}',
+	'.ai-flowfoot .ai-spacer{flex:1}',
+	'.ai-pager{display:inline-flex;align-items:center;gap:var(--ds-sp-1)}',
 
 	'.ai-details{border:1px solid var(--ds-border);border-radius:var(--ds-r-md);background:var(--ds-surface-sunken);padding:0 var(--ds-sp-3);margin-top:var(--ds-sp-3)}',
 	'.ai-details>summary{cursor:pointer;padding:var(--ds-sp-2) 0;font-size:var(--ds-fs-sm);font-weight:650}',
@@ -214,7 +240,7 @@ var COMPONENT_CSS = [
 	'.ai-wifi-only[hidden]{display:none}',
 	'.mtkw-page[data-wifi="false"] .ai-wifi-only{display:none}',
 
-	'@media (prefers-reduced-motion:reduce){.ai-skeleton,.ai-dot--live,.ai-bar-fill{animation:none;transition:none}}',
+	'@media (prefers-reduced-motion:reduce){.ai-skeleton,.ai-dot--live,.ai-bar-fill,.mtkw-page .ai-section-toggle::before,.ai-switch-row[data-busy] .ai-pill .dot{animation:none;transition:none}}',
 
 	/* Theme interference guards: some themes decorate bare header/h2/h3
 	 * elements with primary-coloured bars/borders. Ours own their background
@@ -224,13 +250,12 @@ var COMPONENT_CSS = [
 	'.mtkw-page h2,.mtkw-page h3,.mtkw-page .ai-lede{background:transparent;border:0;box-shadow:none;text-shadow:none}',
 	'.mtkw-page .ai-section-head h3{background:transparent}',
 
-	'@media (max-width:720px){.ai-table--stack thead{display:none}.ai-table--stack,.ai-table--stack tbody,.ai-table--stack tr,.ai-table--stack td{display:block;width:100%}.ai-table--stack tr{padding:var(--ds-sp-2) 0;border-bottom:1px solid var(--ds-border)}.ai-table--stack td{border:0;padding:0}.ai-table--stack td:before{display:block;content:attr(data-label);color:var(--ds-text-muted);font-size:var(--ds-fs-xs);font-weight:650}.ai-kv,.ai-switch-row{grid-template-columns:1fr}}',
+	'@media (max-width:720px){.ai-table--stack thead{display:none}.ai-table--stack,.ai-table--stack tbody,.ai-table--stack tr,.ai-table--stack td{display:block;width:100%}.ai-table--stack tr{padding:var(--ds-sp-2) 0;border-bottom:1px solid var(--ds-border)}.ai-table--stack td{border:0;padding:0}.ai-table--stack td:before{display:block;content:attr(data-label);color:var(--ds-text-muted);font-size:var(--ds-fs-xs);font-weight:650}.ai-kv,.ai-switch-row{grid-template-columns:1fr}.ai-field{flex:1 1 100%}}',
 
 	/* Narrow screens: a flow is one compact block (key fields on a line, the
 	 * two flows below, then the counters) and a port is a two-column card,
 	 * instead of a label above every value. */
 	'@media (max-width:720px){' +
-		'.ai-flows-wrap{max-height:70vh}' +
 		'.ai-flows tr{display:flex;flex-wrap:wrap;align-items:center;gap:var(--ds-sp-1) var(--ds-sp-2);padding:var(--ds-sp-2) var(--ds-sp-1)}' +
 		'.ai-flows td{width:auto;flex:0 0 auto}' +
 		'.ai-flows td[colspan]{flex:1 1 100%}' +
@@ -320,21 +345,49 @@ function tile(o) {
 	]);
 }
 
+/* A section. With `key` its title is a button that folds the body away
+ * (the WAI-ARIA disclosure pattern: the button inside the heading);
+ * `collapsed` is the initial state and `onToggle(collapsed)` reports a
+ * change. The badge `summaryId` names is shown only while the section is
+ * folded, so a folded section still says how things stand. */
+var sectionSeq = 0;
 function section(o) {
 	o = o || {};
 	var attrs = { 'class': 'ai-section' };
 	if (o.id) attrs.id = o.id;
 	if (o.wifiOnly) attrs['data-wifi-only'] = '1';
-	return E('section', attrs, [
-		E('div', { 'class': 'ai-section-head' }, [
-			E('h3', {}, o.title),
-			o.count ? E('span', { 'class': 'ai-badge', 'id': o.countId || null }, o.count) : null,
-			E('span', { 'class': 'ai-spacer' }),
-			o.actions || null
-		]),
+	var body = E('div', { 'class': 'ai-section-body', 'id': 'ai-section-body-' + (++sectionSeq) }, [
 		o.hint ? E('p', { 'class': 'ai-hint' }, o.hint) : null,
 		o.body || null
 	]);
+	var title = o.title;
+	if (o.key) {
+		var collapsed = !!o.collapsed;
+		var btn = E('button', { 'type': 'button', 'class': 'ai-section-toggle', 'aria-controls': body.id }, o.title);
+		var apply = function() {
+			btn.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
+			el.setAttribute('data-collapsed', collapsed ? 'true' : 'false');
+			body.hidden = collapsed;
+		};
+		btn.addEventListener('click', function() {
+			collapsed = !collapsed;
+			apply();
+			if (typeof o.onToggle === 'function') o.onToggle(collapsed);
+		});
+		title = btn;
+	}
+	var el = E('section', attrs, [
+		E('div', { 'class': 'ai-section-head' }, [
+			E('h3', {}, title),
+			o.count || o.countId ? E('span', { 'class': 'ai-badge', 'id': o.countId || null }, o.count || '') : null,
+			o.summaryId ? E('span', { 'class': 'ai-badge ai-section-sum', 'id': o.summaryId }, '') : null,
+			E('span', { 'class': 'ai-spacer' }),
+			o.actions || null
+		]),
+		body
+	]);
+	if (o.key) apply();
+	return el;
 }
 
 function pill(text, kind) {

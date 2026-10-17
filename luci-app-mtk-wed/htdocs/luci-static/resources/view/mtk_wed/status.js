@@ -36,6 +36,37 @@ function notifyError(e) {
 	ui.addNotification(null, E('p', {}, _('Error: %s').format(errText(e))), 'error');
 }
 
+/* Sections folded away, a view preference kept in this browser only, like
+ * the PPE refresh interval. */
+var FOLD_KEY = 'luci-app-mtk-wed.folded';
+function foldedKeys() {
+	try {
+		var v = JSON.parse(window.localStorage.getItem(FOLD_KEY));
+		if (Array.isArray(v)) return v;
+	} catch (e) {}
+	return [];
+}
+
+/* o.onOpen runs when the section is opened: what is drawn to its width
+ * cannot be drawn while it is folded. */
+function foldSection(key, o) {
+	var opened = o.onOpen;
+	o.key = key;
+	o.collapsed = foldedKeys().indexOf(key) >= 0;
+	o.onToggle = function(collapsed) {
+		var keys = foldedKeys().filter(function(k) { return k !== key; });
+		if (collapsed) keys.push(key);
+		try { window.localStorage.setItem(FOLD_KEY, JSON.stringify(keys)); } catch (e) {}
+		if (!collapsed && opened) opened();
+	};
+	return aui.section(o);
+}
+
+function setText(id, text) {
+	var el = document.getElementById(id);
+	if (el) el.textContent = text;
+}
+
 /* ── Port names ──────────────────────────────────────────────────────────
  * Named after the highest speed the port supports (max_mbps from ethtool or
  * the DT phy-mode), so a label does not change while a link renegotiates. */
@@ -154,6 +185,11 @@ function renderPorts(pt) {
 	return t;
 }
 
+function portSummary(pt) {
+	var ports = (Array.isArray((pt || {}).ports) ? pt.ports : []).filter(function(p) { return p.role !== 'conduit'; });
+	return ports.length ? _('%d / %d up').format(ports.filter(function(p) { return p.carrier === 1; }).length, ports.length) : '';
+}
+
 /* ── CPU ── */
 var cpuDirty = false, cpuSaving = false;
 /* Saves bump this when they start and when they end: a status read that
@@ -186,6 +222,12 @@ function woFirmware(w) {
 	if (!built) return ver || 'N/A';
 	built = _('Built %s').format(built);
 	return /^[A-Za-z_]*0+$/.test(ver) || !ver ? built : ver + ' · ' + built;
+}
+
+function cpuSummary(st) {
+	var c = (st && st.cpu) || {};
+	return [ c.cpufreq !== false && c.cur_freq > 0 ? Math.round(c.cur_freq / 1000) + ' MHz' : '',
+		c.temp_milli ? (c.temp_milli / 1000).toFixed(1) + ' °C' : '' ].filter(Boolean).join(' · ');
 }
 
 function renderCpuInfo(st) {
@@ -237,10 +279,11 @@ function renderCpuControl(st) {
 			/* The form is locked while the save runs, so the reply always
 			 * belongs to what is shown and a later edit cannot be lost. */
 			var form = [ save, gs, fs ], was = form.map(function(el) { return el.disabled; });
-			var unlock = function() { cpuSaving = false; form.forEach(function(el, i) { el.disabled = was[i]; }); settingsSaved(); };
+			var unlock = function() { cpuSaving = false; save.textContent = _('Save'); form.forEach(function(el, i) { el.disabled = was[i]; }); settingsSaved(); };
 			cpuSaving = true;
 			settingsGen++;
 			form.forEach(function(el) { el.disabled = true; });
+			save.textContent = _('Saving…');
 			callSetCpuSettings(gs.value, Number(fs.value)).then(function(r) {
 				if (!settingsCurrent(owner)) return;
 				unlock();
@@ -342,6 +385,13 @@ function renderTiles(st) {
 	]);
 }
 
+function offloadSummary(st) {
+	if (!Array.isArray(st.ppe) || !st.ppe.length) return '';
+	var bound = 0, total = 0;
+	st.ppe.forEach(function(p) { bound += p.bound || 0; total += p.total || 0; });
+	return _('%d / %d bound').format(bound, total);
+}
+
 function flowState(st) {
 	var fo = st.flow_offload || {};
 	return fo.hardware ? { on: true, kind: 'ok', text: _('Enabled') }
@@ -357,6 +407,13 @@ function wedState(st) {
 	if (conf !== null && conf !== undefined && conf !== active)
 		return { on: !!conf, kind: 'warn', text: _('Reboot required') };
 	return active ? { on: true, kind: 'ok', text: _('Enabled') } : { on: false, kind: '', text: _('Disabled') };
+}
+
+/* A change on its way to the router: the switch is locked and its state
+ * pulses until the reply. */
+function setBusy(input, on) {
+	var row = input.closest('.ai-switch-row');
+	if (row) row.setAttribute('data-busy', on ? 'true' : 'false');
 }
 
 function setSwitch(rowId, state) {
@@ -394,13 +451,15 @@ function renderSwitches(st, known) {
 			if (!settingsCurrent(owner) || readonly || !known || input.disabled) return;
 			var val = input.checked ? 1 : 0;
 			input.disabled = true;
+			setBusy(input, true);
 			settingsGen++;
 			callSetFlowOffload(val).then(function(r) {
 				if (!settingsCurrent(owner)) return;
 				input.disabled = false;
+				setBusy(input, false);
 				if (r && r.error) { input.checked = !val; notifyError(_(r.error)); }
 				settingsSaved();
-			}).catch(function(e) { if (!settingsCurrent(owner)) return; input.disabled = false; input.checked = !val; notifyError(e); settingsSaved(); });
+			}).catch(function(e) { if (!settingsCurrent(owner)) return; input.disabled = false; setBusy(input, false); input.checked = !val; notifyError(e); settingsSaved(); });
 		}
 	});
 	var wed = aui.switchRow({
@@ -411,14 +470,16 @@ function renderSwitches(st, known) {
 			if (!settingsCurrent(owner) || readonly || !known || input.disabled) return;
 			var val = input.checked ? 1 : 0;
 			input.disabled = true;
+			setBusy(input, true);
 			settingsGen++;
 			callSetWedEnable(val).then(function(r) {
 				if (!settingsCurrent(owner)) return;
 				input.disabled = false;
+				setBusy(input, false);
 				settingsSaved();
 				if (r && r.error) { input.checked = !val; notifyError(_(r.error)); return; }
 				ui.addNotification(null, E('p', {}, _('Saved. Reboot the router to apply the Wi-Fi acceleration change.')), 'info');
-			}).catch(function(e) { if (!settingsCurrent(owner)) return; input.disabled = false; input.checked = !val; notifyError(e); settingsSaved(); });
+			}).catch(function(e) { if (!settingsCurrent(owner)) return; input.disabled = false; setBusy(input, false); input.checked = !val; notifyError(e); settingsSaved(); });
 		}
 	});
 	if (readonly || !known) [ flow, wed ].forEach(function(row) { row.querySelector('input').disabled = true; });
@@ -435,9 +496,11 @@ function renderEngines(st) {
 	if (ppe.length || (!known && wed.length)) {
 		var sum = { bound: 0, total: 0, unbound: 0, ipv4: 0, ipv6: 0 }, u = st.ppeFailed ? '—' : '…';
 		ppe.forEach(function(p) { Object.keys(sum).forEach(function(k) { sum[k] += p[k] || 0; }); });
+		var rate = sum.total ? sum.bound / sum.total * 100 : 0;
 		cards.push(aui.card({
 			name: _('PPE Engines'), tag: ppe.map(function(p) { return 'PPE' + p.id; }).join(' + '), accent: 'var(--ai-npu)',
 			body: [
+				aui.bar({ pct: rate, accent: 'var(--ai-npu)', title: _('Bind rate'), right: !known ? u : sum.total ? rate.toFixed(1) + '%' : '—' }),
 				aui.row(_('Bound'), known ? String(sum.bound) : u),
 				aui.row(_('Total'), known ? String(sum.total) : u),
 				aui.row(_('Unbound'), known ? String(sum.unbound) : u),
@@ -495,45 +558,44 @@ function renderMacs(ms, pt, st) {
 }
 
 /* ── Wi-Fi bands ── */
+/* The body of the Wi-Fi section, or null to hide it: no radio, or no
+ * access point running. A failed query keeps the section with its reason,
+ * so it does not look like a router without Wi-Fi. */
 function renderWifi(wf, st) {
 	wf = wf || {};
 	var bands = Array.isArray(wf.bands) ? wf.bands : [];
-	var title = _('WiFi Band Details');
-	/* A failed query keeps the section with its reason, so it does not look
-	 * like a router without Wi-Fi. */
 	if (wf.available === false) {
 		if (!wf.has_wifi) return null;
-		return aui.section({ title: title, body: aui.empty(wf.error
+		return { body: aui.empty(wf.error
 			? _('Cannot read the Wi-Fi statistics: %s').format(_(wf.error))
-			: _('Install iw to see the Wi-Fi statistics.')) });
+			: _('Install iw to see the Wi-Fi statistics.')), summary: '' };
 	}
 	if (!bands.length && wf.complete !== false) return null;
 	var partial = wf.complete === false ? E('div', { 'class': 'ai-hint', 'style': 'margin:0 0 var(--ds-sp-2)' },
 		_('Some Wi-Fi data could not be read or saved; the rates may be incomplete.')) : null;
 	var path = !Array.isArray((st || {}).wed) ? '' : wedSummary(st).attached ? 'WED' : 'DMA';
-	return aui.section({
-		title: title,
-		hint: _('Per-band airtime efficiency, negotiated and expected rates, and failure counts.'),
-		body: E('div', {}, [ partial, E('div', { 'class': 'ai-grid ai-grid--3' }, bands.map(function(b) {
-			var info = aui.BANDS[b.band];
-			var accent = info ? 'var(' + info.varName + ')' : 'var(--ds-border-strong)';
-			var retry = (b.tx_packets + b.tx_retries) > 0 ? b.tx_retries / (b.tx_packets + b.tx_retries) * 100 : 0;
-			var health = !b.stations ? [ _('No clients'), '' ] : retry > 50 ? [ _('Poor'), 'error' ] : retry > 20 ? [ _('Fair'), 'warn' ] : [ _('Good'), 'ok' ];
-			return aui.card({
-				name: info ? info.full : _('Band') + ' ' + b.band, tag: path, accent: accent,
-				body: [
-					aui.bar({ pct: b.airtime_efficiency, accent: accent, title: _('Airtime'), right: (b.airtime_efficiency || 0) + '%' }),
-					aui.row(_('Status'), aui.pill(health[0], health[1])),
-					aui.row(_('Clients'), String(b.stations || 0)),
-					aui.row(_('Retry'), retry.toFixed(1) + '%'),
-					aui.row(_('PHY / Expected'), aui.fmtMbps(b.avg_phy_rate) + ' / ' + aui.fmtMbps(b.avg_exp_throughput)),
-					aui.row(_('Failed'), String(b.tx_failed || 0)),
-					aui.row(_('Signal'), b.stations ? b.avg_signal + ' / ' + b.min_signal : 'N/A'),
-					aui.row(_('TX'), aui.fmtMbps(b.tx_mbps) + ' Mbps')
-				]
-			});
-		})) ])
-	});
+	var clients = bands.reduce(function(n, b) { return n + (b.stations || 0); }, 0);
+	return { summary: _('%d clients').format(clients), body: E('div', {}, [ partial, E('div', { 'class': 'ai-grid ai-grid--3' }, bands.map(function(b) {
+		var info = aui.BANDS[b.band];
+		var accent = info ? 'var(' + info.varName + ')' : 'var(--ds-border-strong)';
+		var retry = (b.tx_packets + b.tx_retries) > 0 ? b.tx_retries / (b.tx_packets + b.tx_retries) * 100 : 0;
+		var health = !b.stations ? [ _('No clients'), '' ] : retry > 50 ? [ _('Poor'), 'error' ] : retry > 20 ? [ _('Fair'), 'warn' ] : [ _('Good'), 'ok' ];
+		var ifs = String(b.interfaces || '').split(/\s+/).filter(Boolean);
+		return aui.card({
+			name: info ? info.full : _('Band') + ' ' + b.band, tag: path, accent: accent,
+			body: [
+				ifs.length ? E('div', { 'class': 'ai-chips' }, ifs.map(function(n) { return E('span', { 'class': 'ai-chip' }, n); })) : null,
+				aui.bar({ pct: b.airtime_efficiency, accent: accent, title: _('Airtime'), right: (b.airtime_efficiency || 0) + '%' }),
+				aui.row(_('Status'), aui.pill(health[0], health[1])),
+				aui.row(_('Clients'), String(b.stations || 0)),
+				aui.row(_('Retry'), retry.toFixed(1) + '%'),
+				aui.row(_('PHY / Expected'), aui.fmtMbps(b.avg_phy_rate) + ' / ' + aui.fmtMbps(b.avg_exp_throughput)),
+				aui.row(_('Failed'), String(b.tx_failed || 0)),
+				aui.row(_('Signal'), b.stations ? b.avg_signal + ' / ' + b.min_signal : 'N/A'),
+				aui.row(_('TX'), aui.fmtMbps(b.tx_mbps) + ' Mbps')
+			]
+		});
+	})) ]) };
 }
 
 /* ── PPE flow table ── */
@@ -570,25 +632,36 @@ function flowCountText() {
 	return s;
 }
 
-/* Pages of the last reply: the backend pages its own matches, an older one
- * returns every row for the page to filter and split. */
+/* Matches of the last reply: the backend pages its own matches, an older
+ * one returns every row for the page to filter and split. */
+function flowMatched() {
+	return (flowData.page >= 0 ? flowData.matched : filteredFlows().length) || 0;
+}
+
 function flowPages() {
-	var n = flowData.page >= 0 ? flowData.matched : filteredFlows().length;
-	return Math.max(1, Math.ceil((n || 0) / PAGE_SIZE));
+	return Math.max(1, Math.ceil(flowMatched() / PAGE_SIZE));
 }
 
 function updatePager(pages) {
-	var page = document.getElementById('mtkw-page');
-	if (page) page.textContent = (flowPage + 1) + ' / ' + pages;
+	/* A failed read keeps the page, not a range of rows it cannot show. */
+	var n = flowData.available === false ? 0 : flowMatched();
+	setText('mtkw-page', (flowPage + 1) + ' / ' + pages);
+	setText('mtkw-range', n ? _('%d–%d of %d').format(flowPage * PAGE_SIZE + 1, Math.min((flowPage + 1) * PAGE_SIZE, n), n) : '');
 	var prev = document.getElementById('mtkw-prev'), next = document.getElementById('mtkw-next');
 	if (prev) prev.disabled = flowPage === 0;
 	if (next) next.disabled = flowPage + 1 >= pages;
 }
 
+/* "Clear filters" is offered while any filter is set. */
+function syncFilterUi() {
+	var clear = document.getElementById('mtkw-clear');
+	if (clear) clear.hidden = !flowFilter.state && !flowFilter.type && flowFilter.ppe === '';
+}
+
 function updateFlowTable() {
 	var paged = flowData.page >= 0;
 	var rows = paged ? (flowData.entries || []) : filteredFlows();
-	var pages = Math.max(1, Math.ceil((paged ? flowData.matched : rows.length) / PAGE_SIZE));
+	var pages = flowPages();
 	flowPage = Math.min(flowPage, pages - 1);
 	var tbody = document.querySelector('#mtkw-flows tbody');
 	if (!tbody) return;
@@ -627,24 +700,54 @@ function syncPpeFilter(ppe) {
 	 * filter once its PPE is gone. */
 	if (ids.indexOf(flowFilter.ppe) < 0) flowFilter.ppe = '';
 	sel.value = flowFilter.ppe;
+	syncFilterUi();
 }
 
+/* How often the table is read; it sits in the section head. */
+function renderIntervalSelect() {
+	return E('select', { 'id': 'mtkw-ppe-interval', 'aria-label': _('Refresh interval'), 'title': _('Refresh interval'),
+		'change': function(ev) { ppeIntervalSet(Number(ev.target.value)); } },
+		PPE_INTERVALS.map(function(n) {
+			return E('option', { 'value': n, 'selected': n === ppeInterval ? '' : null }, _('Every %d s').format(n));
+		}));
+}
+
+/* Filters above the table, the pager below it, where reading a page ends. */
 function renderFlowTable() {
+	var filters = [];
 	function filter(label, key, values) {
-		return E('select', { 'aria-label': label, 'change': function(ev) {
-			flowFilter[key] = ev.target.value; flowPage = 0; flowRefresh();
+		var sel = E('select', { 'aria-label': label, 'change': function(ev) {
+			flowFilter[key] = ev.target.value; flowPage = 0; syncFilterUi(); flowRefresh();
 		} }, [ E('option', { 'value': '' }, label) ].concat(values.map(function(v) {
 			return E('option', { 'value': v[0] }, v[1]);
 		})));
+		filters.push(sel);
+		return sel;
 	}
 	var head = [ 'PPE', _('Index'), _('State'), _('Type'), 'VLAN', _('Original Flow'), _('New Flow'), _('Packets'), _('Bytes') ];
+	var stateSel = filter(_('All states'), 'state', [ [ 'BND', 'BND' ], [ 'UNB', 'UNB' ], [ 'FIN', 'FIN' ] ]);
+	var typeSel = filter(_('All types'), 'type', [ [ 'IPv4', 'IPv4' ], [ 'IPv6', 'IPv6' ], [ 'DS-LITE', 'DS-LITE' ], [ '6RD', '6RD' ] ]);
 	var ppeSel = filter(_('All PPEs'), 'ppe', []);
 	ppeSel.id = 'mtkw-ppe-filter';
 	return E('div', {}, [
 		E('div', { 'class': 'ai-flowbar' }, [
-			filter(_('All states'), 'state', [ [ 'BND', 'BND' ], [ 'UNB', 'UNB' ], [ 'FIN', 'FIN' ] ]),
-			filter(_('All types'), 'type', [ [ 'IPv4', 'IPv4' ], [ 'IPv6', 'IPv6' ], [ 'DS-LITE', 'DS-LITE' ], [ '6RD', '6RD' ] ]),
-			ppeSel,
+			stateSel, typeSel, ppeSel,
+			E('button', { 'type': 'button', 'class': 'cbi-button', 'id': 'mtkw-clear', 'hidden': '',
+				'click': function() {
+					flowFilter = { state: '', type: '', ppe: '' }; flowPage = 0;
+					filters.forEach(function(sel) { sel.value = ''; });
+					syncFilterUi(); flowRefresh();
+				} }, _('Clear filters'))
+		]),
+		E('div', { 'class': 'ai-table-wrap ai-flows-wrap' }, [
+			E('table', { 'class': 'ai-table ai-table--mono ai-table--stack ai-flows', 'id': 'mtkw-flows' }, [
+				E('thead', {}, E('tr', {}, head.map(function(h) { return E('th', { 'scope': 'col' }, h); }))),
+				E('tbody', {})
+			])
+		]),
+		E('div', { 'class': 'ai-flowfoot' }, [
+			E('span', { 'class': 'ai-muted', 'id': 'mtkw-range' }, ''),
+			E('span', { 'class': 'ai-spacer' }),
 			E('span', { 'class': 'ai-pager' }, [
 				E('button', { 'type': 'button', 'class': 'cbi-button', 'id': 'mtkw-prev', 'aria-label': _('Previous page'),
 					'click': function() { if (flowPage > 0) { flowPage--; updatePager(flowPages()); flowRefresh(); } } }, '‹'),
@@ -654,18 +757,6 @@ function renderFlowTable() {
 						var pages = flowPages();
 						if (flowPage + 1 < pages) { flowPage++; updatePager(pages); flowRefresh(); }
 					} }, '›')
-			]),
-			E('span', { 'class': 'ai-spacer' }),
-			E('select', { 'id': 'mtkw-ppe-interval', 'aria-label': _('Refresh interval'), 'title': _('Refresh interval'),
-				'change': function(ev) { ppeIntervalSet(Number(ev.target.value)); } },
-				PPE_INTERVALS.map(function(n) {
-					return E('option', { 'value': n, 'selected': n === ppeInterval ? '' : null }, _('Every %d s').format(n));
-				}))
-		]),
-		E('div', { 'class': 'ai-table-wrap ai-flows-wrap' }, [
-			E('table', { 'class': 'ai-table ai-table--mono ai-table--stack ai-flows', 'id': 'mtkw-flows' }, [
-				E('thead', {}, E('tr', {}, head.map(function(h) { return E('th', { 'scope': 'col' }, h); }))),
-				E('tbody', {})
 			])
 		])
 	]);
@@ -696,8 +787,15 @@ return view.extend({
 		cpuDirty = cpuSaving = false; freqHistory = [];
 		flowFilter = { state: '', type: '', ppe: '' }; flowPage = 0; flowData = { entries: [] };
 		var updated = E('span', { 'class': 'ai-updated' }, '');
+		/* Shown once a reply finds Wi-Fi to show. */
+		var wifiSection = foldSection('wifi', { id: 'mtkw-wifi', title: _('WiFi Band Details'), summaryId: 'mtkw-wifi-sum',
+			hint: _('Per-band airtime efficiency, negotiated and expected rates, and failure counts.'),
+			body: E('div', { 'id': 'mtkw-wifi-body' }) });
+		wifiSection.hidden = true;
 		/* A div, not a header: themes style every header (Bootstrap makes it
-		 * a sticky flex bar). Offload first, then what feeds it. */
+		 * a sticky flex bar). The order of luci-app-airoha-npu: the ports and
+		 * the CPU, the offload they feed, Wi-Fi, and the long flow table last.
+		 * Every section folds; a folded one keeps a summary in its head. */
 		var page = E('div', { 'class': 'cbi-map mtkw-page' }, [
 			E('div', { 'class': 'ai-pagehead' }, [
 				E('div', { 'class': 'ai-pagehead-text' }, [
@@ -706,26 +804,34 @@ return view.extend({
 				]),
 				updated
 			]),
-			aui.section({ title: _('Hardware Offload'), hint: _('Switches here apply the hardware offload settings for this device.'),
+			foldSection('ports', { title: _('Ethernet Ports'), summaryId: 'mtkw-ports-sum',
+				body: E('div', { 'id': 'mtkw-ports' }, aui.empty(_('Loading…'))) }),
+			foldSection('cpu', { title: _('CPU Frequency'), summaryId: 'mtkw-cpu-sum', onOpen: function() { drawFreq(lastStatus.cpu || {}); }, body: E('div', {}, [
+				E('div', { 'class': 'ai-grid ai-grid--2' }, [ E('div', { 'id': 'mtkw-cpu-info' }), E('div', { 'id': 'mtkw-cpu-ctl' }) ]),
+				E('div', { 'class': 'ai-grid', 'id': 'mtkw-freq-wrap', 'style': 'margin-top:var(--ds-sp-2)' }, [
+					aui.card({ name: _('Frequency History'), accent: 'var(--ai-npu)', body: E('div', { 'id': 'mtkw-freq' }) })
+				])
+			]) }),
+			foldSection('offload', { title: _('Hardware Offload'), summaryId: 'mtkw-offload-sum',
+				hint: _('Switches here apply the hardware offload settings for this device.'),
 				body: E('div', {}, [
 					E('div', { 'id': 'mtkw-tiles' }),
 					E('div', { 'id': 'mtkw-switches', 'style': 'margin-top:var(--ds-sp-3)' }),
 					E('div', { 'id': 'mtkw-engines', 'style': 'margin-top:var(--ds-sp-2)' }),
 					E('div', { 'id': 'mtkw-macs', 'style': 'margin-top:var(--ds-sp-2)' })
 				]) }),
-			aui.section({ title: _('PPE Flow Offload Entries'), count: '…', countId: 'mtkw-flow-count', body: renderFlowTable() }),
-			E('div', { 'id': 'mtkw-wifi' }),
-			aui.section({ title: _('Ethernet Ports'), body: E('div', { 'id': 'mtkw-ports' }, aui.empty(_('Loading…'))) }),
-			aui.section({ title: _('CPU Frequency'), body: E('div', {}, [
-				E('div', { 'class': 'ai-grid ai-grid--2' }, [ E('div', { 'id': 'mtkw-cpu-info' }), E('div', { 'id': 'mtkw-cpu-ctl' }) ]),
-				E('div', { 'class': 'ai-grid', 'id': 'mtkw-freq-wrap', 'style': 'margin-top:var(--ds-sp-2)' }, [
-					aui.card({ name: _('Frequency History'), accent: 'var(--ai-npu)', body: E('div', { 'id': 'mtkw-freq' }) })
-				])
-			]) })
+			wifiSection,
+			foldSection('flows', { title: _('PPE Flow Offload Entries'), count: '…', countId: 'mtkw-flow-count',
+				actions: renderIntervalSelect(), body: renderFlowTable() })
 		]);
 		activePage = page;
 		function isLive() { return activePage === page && (!started || page.isConnected); }
 
+		/* The chart is drawn to the width it has, none while folded. */
+		function drawFreq(c) {
+			var fh = document.getElementById('mtkw-freq');
+			if (fh && fh.clientWidth > 0) replace('mtkw-freq', renderFreqChart(c, fh.clientWidth));
+		}
 		var first = true, pending = null, switchesKnown = false;
 		var lastStatus = {}, lastPorts = {}, lastGood = null, lastPortsGood = null, lastMacGood = null;
 		var ppePending = null, statusReady = false, started = false;
@@ -736,6 +842,7 @@ return view.extend({
 			syncPpeFilter(lastStatus.ppe);
 			replace('mtkw-tiles', renderTiles(lastStatus));
 			replace('mtkw-engines', renderEngines(lastStatus));
+			setText('mtkw-offload-sum', offloadSummary(lastStatus));
 		}
 		var refreshFlows = function(live) {
 			if (!statusReady || stopDetached()) return Promise.resolve();
@@ -805,6 +912,8 @@ return view.extend({
 				if (lede) lede.textContent = err ? _('Cannot read status from the luci.mtk_wed backend: %s').format(errText(err))
 					: [ st.model, st.compatible ].filter(Boolean).join(' · ');
 				replace('mtkw-ports', renderPorts(pt));
+				setText('mtkw-ports-sum', portSummary(pt));
+				setText('mtkw-cpu-sum', cpuSummary(st));
 				replace('mtkw-cpu-info', renderCpuInfo(st));
 				/* Most MT7981/MT7986 boards have no OPP table, hence no
 				 * cpufreq: show the CPU card alone instead of empty controls. */
@@ -818,9 +927,9 @@ return view.extend({
 					freqHistory.push(c.cur_freq);
 					if (freqHistory.length > FREQ_HISTORY_MAX) freqHistory.shift();
 				}
-				var fh = document.getElementById('mtkw-freq');
-				if (fh && !noScaling) replace('mtkw-freq', renderFreqChart(c, fh.clientWidth));
+				if (!noScaling) drawFreq(c);
 				replace('mtkw-tiles', renderTiles(st));
+				setText('mtkw-offload-sum', offloadSummary(st));
 				/* Without a status reply the switch state is unknown: keep the
 				 * last known one, or locked unknown switches until a first
 				 * reply builds the real ones. */
@@ -829,7 +938,10 @@ return view.extend({
 				else if (first) replace('mtkw-switches', renderSwitches(st, false));
 				replace('mtkw-engines', renderEngines(st));
 				replace('mtkw-macs', renderMacs(ms, pt, st));
-				replace('mtkw-wifi', renderWifi(d[3], st));
+				var wifi = renderWifi(d[3], st), wifiEl = document.getElementById('mtkw-wifi');
+				if (wifiEl) wifiEl.hidden = !wifi;
+				replace('mtkw-wifi-body', wifi && wifi.body);
+				setText('mtkw-wifi-sum', wifi ? wifi.summary : '');
 				if (!err) updated.textContent = _('Updated %s').format(new Date().toLocaleTimeString());
 				first = false;
 			}).finally(function() { pending = null; });
