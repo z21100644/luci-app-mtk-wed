@@ -755,13 +755,14 @@ is_dsa_user() {
 	return 1
 }
 
-# Prefer netifd's resolved L3 device (including dynamic protocol devices).
-# Fall back to UCI while the interface is unavailable or still starting.
+# Prefer netifd's underlying device: a PPP L3 device has no sysfs lower_*
+# link to its Ethernet carrier. Use L3 or UCI when no main device is reported.
 wan_interface() {
-	local name="$1" depth="${2:-0}" device
+	local name="$1" depth="${2:-0}" device status
 	[ "$depth" -lt 6 ] || return 0
-	device=$(ubus -S call "network.interface.$name" status 2>/dev/null |
-		jsonfilter -e '@.l3_device' 2>/dev/null)
+	status=$(ubus -S call "network.interface.$name" status 2>/dev/null)
+	device=$(jsonfilter -s "$status" -e '@.device' 2>/dev/null)
+	[ -n "$device" ] || device=$(jsonfilter -s "$status" -e '@.l3_device' 2>/dev/null)
 	[ -n "$device" ] || device=$(uci -q get "network.$name.device")
 	wan_ports "$device" "$depth"
 }
