@@ -118,7 +118,7 @@ function unq(v) {
 	return v
 }
 function karg(a,   e) {
-	a = unq(a); e = index(a, "=")
+	a = unq(a); KSTOP = (a == "--"); e = index(a, "=")
 	if (e) { KN = substr(a, 1, e - 1); KV = unq(substr(a, e + 1)) } else { KN = a; KV = "1" }
 	gsub(/-/, "_", KN)
 }
@@ -550,6 +550,11 @@ function wed_conf(line,   i) {
 	return WA_NAME != ""
 }
 function wed_line(line, conf,   i, name) {
+	if (conf == 2) {
+		if (wed_line(line, 1)) return 1
+		return wed_line(line, 0)
+	}
+	WA_CONF = conf
 	WA_PREFIX = WA_ARGS = WA_SUFFIX = ""
 	if (conf) {
 		if (!wed_conf(line) || WA_CMD != "options" || WA_NAME != mod) return 0
@@ -578,10 +583,10 @@ wed_configured() {
 	for f in "$R"/etc/modules-boot.d/*; do [ ! -f "$f" ] || set -- "$@" "$f"; done
 	set -- "$@" mode=auto
 	for f in "$R"/etc/modules.d/*; do [ ! -f "$f" ] || set -- "$@" "$f"; done
-	value=$(awk -v mod="$mod" "$KARGS_AWK$WED_LINES_AWK"'
-		mode == "conf" && wed_conf($0) && WA_CMD == "blacklist" && WA_NAME == mod { blocked = 1 }
-		{
-			if (done[mode] || !wed_line($0, mode == "conf")) next
+	value=$(LC_ALL=C awk -v mod="$mod" "$KARGS_AWK$WED_LINES_AWK"'
+		function consume(line,   name) {
+			if (mode == "conf" && wed_conf(line) && WA_CMD == "blacklist" && WA_NAME == mod) blocked = 1
+			if (done[mode] || !wed_line(line, mode == "conf")) return
 			seen[mode] = 1
 			if (WA_HAS_ARGS) {
 				args[mode] = gotopts[mode] ? args[mode] " " WA_ARGS : WA_ARGS
@@ -590,6 +595,13 @@ wed_configured() {
 			name = FILENAME; sub(/.*\//, "", name)
 			if (mode != "conf" && substr(name, 1, 1) <= "9") done[mode] = 1
 		}
+		{
+			# load_options() uses fgets(buf, 512): each 511-byte chunk
+			# is parsed as a separate record, including a split quoted value.
+			if (mode == "conf") {
+				for (offset = 1; offset <= length($0); offset += 511) consume(substr($0, offset, 511))
+			} else consume($0)
+		}
 		END {
 			m = seen["boot"] ? "boot" : seen["auto"] ? "auto" : "conf"
 			# kmodloader joins options before the kernel parses any quotes.
@@ -597,7 +609,7 @@ wed_configured() {
 			if (m != "conf" && gotopts[m]) combined = gotopts["conf"] ? combined " " args[m] : args[m]
 			n = kargs(combined, t)
 			for (j = 1; j <= n; j++) {
-				karg(t[j]); if (KN != "wed_enable") continue
+				karg(t[j]); if (KSTOP) break; if (KN != "wed_enable") continue
 				v = KV; have = 1
 				if (KV !~ /^([eEyYtT1dDnNfF0]|[oO][nNfF])/) bad = 1
 			}
@@ -743,6 +755,17 @@ is_dsa_user() {
 	return 1
 }
 
+# Prefer netifd's resolved L3 device (including dynamic protocol devices).
+# Fall back to UCI while the interface is unavailable or still starting.
+wan_interface() {
+	local name="$1" depth="${2:-0}" device
+	[ "$depth" -lt 6 ] || return 0
+	device=$(ubus -S call "network.interface.$name" status 2>/dev/null |
+		jsonfilter -e '@.l3_device' 2>/dev/null)
+	[ -n "$device" ] || device=$(uci -q get "network.$name.device")
+	wan_ports "$device" "$depth"
+}
+
 # The physical port under a WAN device: a VLAN (eth2.35, or a named 8021q
 # device) links to its parent as lower_<dev> in sysfs.
 wan_ports() {
@@ -752,6 +775,9 @@ wan_ports() {
 	# ports stop there, though they list their conduit as a lower device.
 	local d="$1" depth="${2:-0}" l found=0
 	[ -n "$d" ] && [ "$depth" -lt 6 ] || return 0
+	case "$d" in
+		@*) wan_interface "${d#@}" $((depth + 1)); return 0 ;;
+	esac
 	if [ ! -d "$R/sys/class/net/$d" ]; then
 		# Not created yet: a VLAN name still points at its port.
 		case "$d" in
@@ -848,8 +874,8 @@ port_json() {
 get_ports() {
 	local wan n i c drv gdm role kind conduit out="" first=1 iflink
 	WP=
-	wan_ports "$(uci -q get network.wan.device)"
-	wan_ports "$(uci -q get network.wan6.device)"
+	wan_interface wan
+	wan_interface wan6
 	wan=$WP
 	for n in "$R"/sys/class/net/*; do
 		i=${n##*/}
@@ -982,6 +1008,7 @@ wifi_records() {
 
 get_wifi_stats() {
 	local iface records d now end rest late rates snap list info prev f try body old partial=0 hw cur=""
+	local rate0 rate1 rate2 tag previous_time previous_end
 	hw=$([ -n "$(ls "$R"/sys/class/ieee80211 2>/dev/null)" ] && echo true || echo false)
 	if ! command -v iw >/dev/null 2>&1; then
 		printf '{"available":false,"has_wifi":%s,"bands":[]}' "$hw"
@@ -1063,7 +1090,14 @@ EOF
 				printf "T %s %s %s %s %s\n", now, r[0], r[1], r[2], end
 				for (k in ctx) printf "S %s %s %s\n", cb[k], k, ctx[k]
 			}
-		}')
+		}') || {
+		# Keep the previous rates and baseline when the calculator fails.
+		partial=1
+		read -r tag previous_time rate0 rate1 rate2 previous_end <<EOF
+$prev
+EOF
+		snap="${rate0:-0} ${rate1:-0} ${rate2:-0} 0"
+	}
 	rates=${snap%%"$NL"*}
 	case "$snap" in
 		*"$NL"*)
@@ -1088,7 +1122,6 @@ EOF
 			;;
 	esac
 
-	local rate0 rate1 rate2
 	read -r rate0 rate1 rate2 late <<EOF
 $rates
 EOF
@@ -1168,6 +1201,9 @@ set_flow_offload() {
 # the one canonical value; boot and normal autoload then inherit that value.
 wed_rewrite() {
 	awk -v mod="$1" -v val="$2" -v conf="$3" "$KARGS_AWK$WED_LINES_AWK"'
+		# Put the setting before any kernel -- terminator without changing
+		# which other arguments after that terminator are ignored.
+		BEGIN { if (conf) print "options " mod " wed_enable=" val }
 		{
 			if (!wed_line($0, conf)) { print; next }
 			n = kargs(WA_ARGS, t); rest = ""; hit = 0
@@ -1176,10 +1212,12 @@ wed_rewrite() {
 				if (KN == "wed_enable") hit = 1; else rest = rest " " t[j]
 			}
 			if (!hit) { print; next }
-			if (!conf || rest != "") print WA_PREFIX rest (WA_SUFFIX != "" ? " " WA_SUFFIX : "")
+			# A shared conf/autoload line must keep an argument: the conf
+			# loader cannot parse a bare module name safely.
+			if (conf == 2 && !WA_CONF) rest = " wed_enable=" val rest
+			if (!WA_CONF || rest != "") print WA_PREFIX rest (WA_SUFFIX != "" ? " " WA_SUFFIX : "")
 			else if (WA_SUFFIX != "") print WA_SUFFIX
 		}
-		END { if (conf) print "options " mod " wed_enable=" val }
 		' "$4"
 }
 
@@ -1187,12 +1225,17 @@ wed_rewrite() {
 # hidden in the destination directory: rename/rollback stay on one filesystem,
 # and kmodloader never mistakes a leftover staging file for an autoload entry.
 wed_stage() {
-	local mod="$1" val="$2" f target conf tmp old step seen="$NL" i=0
+	local mod="$1" val="$2" f target conf tmp old step seen="$NL" i=0 shared=0 conf_target
+	conf_target=$(readlink -f "$MODCONF") || return 1
+	for f in "$R"/etc/modules-boot.d/* "$R"/etc/modules.d/*; do
+		[ -f "$f" ] || continue
+		[ "$(readlink -f "$f")" != "$conf_target" ] || shared=1
+	done
 	set -- "$MODCONF" "$R"/etc/modules-boot.d/* "$R"/etc/modules.d/*
 	for f in "$@"; do
 		conf=0
 		if [ "$f" = "$MODCONF" ]; then
-			conf=1
+			conf=$((1 + shared))
 			[ ! -e "$f" ] || [ -f "$f" ] || return 1
 		else
 			[ -f "$f" ] || continue
@@ -1204,18 +1247,21 @@ wed_stage() {
 		if [ -f "$target" ]; then
 			# A quote spanning lines/files cannot be rewritten independently.
 			# Reject it before installing any file; preserve unrelated entries.
-			awk -v mod="$mod" -v conf="$conf" "$KARGS_AWK$WED_LINES_AWK"'
+			LC_ALL=C awk -v mod="$mod" -v conf="$conf" "$KARGS_AWK$WED_LINES_AWK"'
+				# Rewriting a split loader record can change its quote state.
+				conf && length($0) > 511 { toolong = 1; exit }
 				wed_line($0, conf) {
 					q = WA_ARGS
 					if (gsub(/"/, "", q) % 2) { unclosed = 1; exit }
 					n = kargs(WA_ARGS, t)
 					for (j = 1; j <= n; j++) { karg(t[j]); if (KN == "wed_enable") hit = 1 }
 				}
-				END { if (unclosed) exit 11; if (hit) exit 10 }
+				END { if (toolong) exit 12; if (unclosed) exit 11; if (hit) exit 10 }
 				' "$target" >/dev/null 2>&1
 			case "$?" in
-				0) [ "$conf" = 1 ] || continue ;;
+				0) [ "$conf" != 0 ] || continue ;;
 				10) ;;
+				12) WED_STAGE_ERROR='cannot safely save WED settings with oversized configuration lines'; return 1 ;;
 				11) WED_STAGE_ERROR='cannot safely save WED settings with quotes spanning lines or files'; return 1 ;;
 				*) return 1 ;;
 			esac

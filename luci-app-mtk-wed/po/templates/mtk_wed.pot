@@ -443,3 +443,21 @@ msgstr ""
 
 msgid "iw dev failed"
 msgstr ""
+
+msgid "cannot parse Wi-Fi interfaces"
+msgstr ""
+
+msgid "cannot safely save WED settings with quotes spanning lines or files"
+msgstr ""
+
+msgid "cannot safely save WED settings with oversized configuration lines"
+msgstr ""
+
+msgid "cannot prepare the WED settings"
+msgstr ""
+
+msgid "cannot save the WED settings; previous settings restored"
+msgstr ""
+
+msgid "cannot save or restore the WED settings; recovery files: %s"
+msgstr ""

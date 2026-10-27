@@ -444,3 +444,21 @@ msgstr "無法讀取 PPE 流量表"
 
 msgid "iw dev failed"
 msgstr "iw dev 執行失敗"
+
+msgid "cannot parse Wi-Fi interfaces"
+msgstr "無法解析 Wi-Fi 介面"
+
+msgid "cannot safely save WED settings with quotes spanning lines or files"
+msgstr "WED 參數的引號跨越行或檔案，無法安全儲存設定"
+
+msgid "cannot safely save WED settings with oversized configuration lines"
+msgstr "WED 設定行過長，無法安全儲存設定"
+
+msgid "cannot prepare the WED settings"
+msgstr "無法準備 WED 設定"
+
+msgid "cannot save the WED settings; previous settings restored"
+msgstr "無法儲存 WED 設定；已還原先前設定"
+
+msgid "cannot save or restore the WED settings; recovery files: %s"
+msgstr "無法儲存或還原 WED 設定；復原檔案：%s"

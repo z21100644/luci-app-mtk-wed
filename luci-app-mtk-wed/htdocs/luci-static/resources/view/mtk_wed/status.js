@@ -27,6 +27,14 @@ var callSetCpuSettings = rpc.declare({ object: 'luci.mtk_wed', method: 'setCpuSe
 /* Users granted only the read part of the ACL get the page without controls. */
 var readonly = !L.hasViewPermission();
 
+/* Translate the fixed template before adding the recovery directory. */
+function rpcError(message) {
+	var prefix = 'cannot save or restore the WED settings; recovery files: ';
+	if (message.indexOf(prefix) === 0)
+		return _('cannot save or restore the WED settings; recovery files: %s').format(message.slice(prefix.length));
+	return _(message);
+}
+
 /* LuCI appends a stack line to RPC errors; keep the message only. */
 function errText(e) {
 	return String((e && e.message) || e).split('\n')[0];
@@ -290,7 +298,7 @@ function renderCpuControl(st) {
 				/* Saved or not, the form follows the backend again. */
 				cpuDirty = false;
 				if (r && r.error)
-					notifyError(_(r.error));
+					notifyError(rpcError(r.error));
 				else
 					ui.addNotification(null, E('p', {}, _('CPU settings saved — they will persist after a reboot')), 'info');
 			}).catch(function(e) { if (!settingsCurrent(owner)) return; unlock(); cpuDirty = false; notifyError(e); });
@@ -457,7 +465,7 @@ function renderSwitches(st, known) {
 				if (!settingsCurrent(owner)) return;
 				input.disabled = false;
 				setBusy(input, false);
-				if (r && r.error) { input.checked = !val; notifyError(_(r.error)); }
+				if (r && r.error) { input.checked = !val; notifyError(rpcError(r.error)); }
 				settingsSaved();
 			}).catch(function(e) { if (!settingsCurrent(owner)) return; input.disabled = false; setBusy(input, false); input.checked = !val; notifyError(e); settingsSaved(); });
 		}
@@ -477,7 +485,7 @@ function renderSwitches(st, known) {
 				input.disabled = false;
 				setBusy(input, false);
 				settingsSaved();
-				if (r && r.error) { input.checked = !val; notifyError(_(r.error)); return; }
+				if (r && r.error) { input.checked = !val; notifyError(rpcError(r.error)); return; }
 				ui.addNotification(null, E('p', {}, _('Saved. Reboot the router to apply the Wi-Fi acceleration change.')), 'info');
 			}).catch(function(e) { if (!settingsCurrent(owner)) return; input.disabled = false; setBusy(input, false); input.checked = !val; notifyError(e); settingsSaved(); });
 		}
