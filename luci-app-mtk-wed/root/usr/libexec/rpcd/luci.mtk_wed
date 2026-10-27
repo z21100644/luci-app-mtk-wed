@@ -100,13 +100,13 @@ KARGS_AWK='
 function kargs(s, out,   n, i, len, c, q, st) {
 	n = 0; len = length(s); i = 1
 	while (i <= len) {
-		while (i <= len && substr(s, i, 1) ~ /[ \t]/) i++
+		while (i <= len && substr(s, i, 1) ~ /[[:space:]]/) i++
 		if (i > len) break
 		st = i; q = 0
 		if (substr(s, i, 1) == "\"") { q = 1; i++ }
 		for (; i <= len; i++) {
 			c = substr(s, i, 1)
-			if (c ~ /[ \t]/ && !q) break
+			if (c ~ /[[:space:]]/ && !q) break
 			if (c == "\"") q = !q
 		}
 		out[++n] = substr(s, st, i - st)
@@ -527,23 +527,92 @@ wed_module() {
 	esac
 }
 
+# Decode the two formats kmodloader reads. modules.conf strips comments and
+# accepts whitespace before "options". Autoload files split at their first
+# literal space, keep '#' in the arguments, and accept module paths/.ko names.
+# Sharing this with the writer keeps the displayed setting and saved one alike.
+WED_LINES_AWK='
+function wed_conf(line,   i) {
+	WA_CMD = WA_NAME = WA_ARGS = WA_SUFFIX = ""
+	WA_HAS_ARGS = 0
+	i = index(line, "#")
+	if (i) { WA_SUFFIX = substr(line, i); line = substr(line, 1, i - 1) }
+	sub(/^[[:space:]]*/, "", line); sub(/[[:space:]]*$/, "", line)
+	i = match(line, /[ \t]/)
+	if (!i) return 0
+	WA_CMD = substr(line, 1, i - 1); line = substr(line, i + 1)
+	sub(/^[[:space:]]*/, "", line)
+	i = match(line, /[ \t]/)
+	WA_NAME = i ? substr(line, 1, i - 1) : line
+	WA_ARGS = i ? substr(line, i + 1) : ""
+	sub(/^[[:space:]]*/, "", WA_ARGS)
+	WA_HAS_ARGS = WA_ARGS != ""
+	return WA_NAME != ""
+}
+function wed_line(line, conf,   i, name) {
+	WA_PREFIX = WA_ARGS = WA_SUFFIX = ""
+	if (conf) {
+		if (!wed_conf(line) || WA_CMD != "options" || WA_NAME != mod) return 0
+		WA_PREFIX = "options " mod
+	} else {
+		i = index(line, " ")
+		WA_PREFIX = i ? substr(line, 1, i - 1) : line
+		name = WA_PREFIX; sub(/.*\//, "", name); sub(/\.ko.*/, "", name)
+		if (name != mod) return 0
+		WA_ARGS = i ? substr(line, i + 1) : ""
+		WA_HAS_ARGS = i > 0
+	}
+	return 1
+}
+'
+
+# Effective explicit WED value at the normal boot stages, or null when unset
+# or invalid. Early modules load first. In each directory numeric (and lower
+# ASCII) file names load immediately; other names collect options until the
+# final pass. Once this module loads, later entries cannot change its options.
+wed_configured() {
+	local mod="$1" f value
+	set -- mode=conf /dev/null
+	[ ! -f "$MODCONF" ] || set -- "$@" "$MODCONF"
+	set -- "$@" mode=boot
+	for f in "$R"/etc/modules-boot.d/*; do [ ! -f "$f" ] || set -- "$@" "$f"; done
+	set -- "$@" mode=auto
+	for f in "$R"/etc/modules.d/*; do [ ! -f "$f" ] || set -- "$@" "$f"; done
+	value=$(awk -v mod="$mod" "$KARGS_AWK$WED_LINES_AWK"'
+		mode == "conf" && wed_conf($0) && WA_CMD == "blacklist" && WA_NAME == mod { blocked = 1 }
+		{
+			if (done[mode] || !wed_line($0, mode == "conf")) next
+			seen[mode] = 1
+			if (WA_HAS_ARGS) {
+				args[mode] = gotopts[mode] ? args[mode] " " WA_ARGS : WA_ARGS
+				gotopts[mode] = 1
+			}
+			name = FILENAME; sub(/.*\//, "", name)
+			if (mode != "conf" && substr(name, 1, 1) <= "9") done[mode] = 1
+		}
+		END {
+			m = seen["boot"] ? "boot" : seen["auto"] ? "auto" : "conf"
+			# kmodloader joins options before the kernel parses any quotes.
+			combined = args["conf"]
+			if (m != "conf" && gotopts[m]) combined = gotopts["conf"] ? combined " " args[m] : args[m]
+			n = kargs(combined, t)
+			for (j = 1; j <= n; j++) {
+				karg(t[j]); if (KN != "wed_enable") continue
+				v = KV; have = 1
+				if (KV !~ /^([eEyYtT1dDnNfF0]|[oO][nNfF])/) bad = 1
+			}
+			if (blocked || bad) print "!"
+			else if (have) print "v" v
+		}' "$@" 2>/dev/null) || value=
+	if [ -n "$value" ]; then kbool "${value#v}"; WC=$KB; else WC=null; fi
+}
+
 wed_param_json() {
-	local mod live conf
+	local mod live
 	mod=$(wed_module)
 	rd "$R/sys/module/$mod/parameters/wed_enable"; kbool "$RD"; live=$KB
-	# Read modules.conf the way kmodloader does: drop everything after "#",
-	# join the options lines of a module in order; the last value wins. As
-	# in the kernel, "-" and "_" match in the name and a bare name sets it.
-	conf=$(awk -v mod="$mod" "$KARGS_AWK"'
-		{ sub(/#.*/, "") }
-		$1 == "options" && $2 == mod {
-			line = $0; sub(/^[ \t]*options[ \t]+[^ \t]+/, "", line)
-			n = kargs(line, t)
-			for (j = 1; j <= n; j++) { karg(t[j]); if (KN == "wed_enable") { v = KV; set = 1 } }
-		}
-		END { if (set) print "v" v }' "$MODCONF" 2>/dev/null)
-	if [ -n "$conf" ]; then kbool "${conf#v}"; conf=$KB; else conf=null; fi
-	printf '"wed_param":{"module":"%s","active":%s,"configured":%s}' "$mod" "$live" "$conf"
+	wed_configured "$mod"
+	printf '"wed_param":{"module":"%s","active":%s,"configured":%s}' "$mod" "$live" "$WC"
 }
 
 # wed_json <SoC compatible>
@@ -839,9 +908,80 @@ get_mac_stats() {
 # ── Wi-Fi ───────────────────────────────────────────────────────────────
 # Per-band client health from iw, same computation as luci-app-airoha-npu.
 
+# Normalize one interface and its stations. iw prints top-level statistics
+# followed by per-link statistics for an MLO station; only one level is used.
+# I = band/interface, U = unique station, C = counters, P = incomplete mapping.
+wifi_records() {
+	# The interface name is data on stdin: awk -v would decode backslashes.
+	printf '%s\n%s\n#STATIONS\n%s\n' "$1" "$2" "$3" | awk '
+		function band(f) { return f >= 5925 ? 2 : f >= 5000 ? 1 : 0 }
+		function value(s, k) { return ((s SUBSEP k) in v) ? v[s, k] : "-" }
+		function emit(s, b, key,   ct) {
+			ct = value(s, "ct"); if (ct == "-") ct = value("top", "ct")
+			print "C", b, iface, key, value(s, "tx"), ct, value(s, "pk"),
+				value(s, "rt"), value(s, "fl"), value(s, "phy"), value(s, "ex"), value(s, "sig")
+		}
+		function flush_station(   l) {
+			if (mac == "") return
+			print "U", iface, mac
+			if (have_links) {
+				for (l in links) {
+					if (!(l in bands)) { print "P"; continue }
+					emit(l, bands[l], mac "/" l "/" ((l in addresses) ? addresses[l] : "-"))
+				}
+			} else if (band_count == 1 && !unmapped) emit("top", only_band, mac)
+			else print "P"
+		}
+		NR == 1 { iface = $0; next }
+		!stations && $0 == "#STATIONS" {
+			stations = 1
+			if (!mlo && have_channel) active[default_band] = 1
+			for (b = 0; b < 3; b++) if (b in active) { print "I", b, iface; band_count++; only_band = b }
+			for (l in configured) if (!(l in bands)) unmapped = 1
+			next
+		}
+		!stations {
+			if ($1 == "MLD" && $2 == "with" && $3 == "links:") { mlo = 1; id = "" }
+			if ($1 == "-" && $2 == "link") {
+				mlo = 1; id = ""
+				if ($3 == "ID" && $4 ~ /^[0-9]+$/) { id = $4 + 0; configured[id] = 1 }
+				else unmapped = 1
+			}
+			if ($1 == "channel") {
+				f = $3; sub(/^\(/, "", f)
+				if (f ~ /^[0-9]+$/ && f + 0 > 1000) {
+					if (mlo && id != "") { bands[id] = band(f); active[bands[id]] = 1 }
+					else if (!mlo) { have_channel = 1; default_band = band(f) }
+				}
+			}
+			next
+		}
+		/^Station / {
+			flush_station(); delete v; delete links; delete addresses
+			mac = $2; section = "top"; have_links = 0; next
+		}
+		mac == "" { next }
+		$1 == "Link" && $2 ~ /^[0-9]+:$/ {
+			section = $2; sub(/:$/, "", section); section += 0
+			links[section] = 1; have_links = 1; next
+		}
+		$1 == "address:" && section != "top" { addresses[section] = $2; next }
+		$1 == "tx" && $3 ~ /^[0-9]+$/ {
+			if ($2 == "bytes:") v[section, "tx"] = $3
+			else if ($2 == "packets:") v[section, "pk"] = $3
+			else if ($2 == "retries:") v[section, "rt"] = $3
+			else if ($2 == "failed:") v[section, "fl"] = $3
+		}
+		$1 == "connected" && $2 == "time:" && $3 ~ /^[0-9]+$/ { v[section, "ct"] = $3 }
+		$1 == "tx" && $2 == "bitrate:" && $3 + 0 > 0 { v[section, "phy"] = $3 + 0 }
+		$1 == "expected" && $2 == "throughput:" && $3 + 0 > 0 { v[section, "ex"] = $3 + 0 }
+		$1 == "signal" && $2 == "avg:" && $3 ~ /^-[0-9]+$/ { v[section, "sig"] = $3 }
+		END { flush_station() }
+	'
+}
+
 get_wifi_stats() {
-	local iface band freq d now end rest late rates snap list info prev f try body old partial=0 hw cur=""
-	local dump0="" dump1="" dump2="" if0="" if1="" if2=""
+	local iface records d now end rest late rates snap list info prev f try body old partial=0 hw cur=""
 	hw=$([ -n "$(ls "$R"/sys/class/ieee80211 2>/dev/null)" ] && echo true || echo false)
 	if ! command -v iw >/dev/null 2>&1; then
 		printf '{"available":false,"has_wifi":%s,"bands":[]}' "$hw"
@@ -853,46 +993,25 @@ get_wifi_stats() {
 	# "Interface" and "type" are the first words of their lines; the SSID
 	# line in between may contain the same words. AP/VLAN carries the WDS
 	# stations of an AP.
-	for iface in $(printf '%s\n' "$list" | awk '
+	list=$(printf '%s\n' "$list" | awk '
 		$1 == "Interface" { i = $2; next }
 		$1 == "type" {
 			if (($2 == "AP" || $2 == "AP/VLAN") && i != "" && !(i in seen)) { seen[i]; print i }
 			i = ""
-		}'); do
+		}') || { printf '{"available":false,"has_wifi":%s,"error":"cannot parse Wi-Fi interfaces","bands":[]}' "$hw"; return; }
+	# Valid interface names can contain glob characters and backslashes.
+	while IFS= read -r iface; do
+		[ -n "$iface" ] || continue
 		# A failed query leaves the sample incomplete: it is reported and
 		# never becomes the rate baseline.
 		info=$(iw dev "$iface" info 2>/dev/null) || { partial=1; continue; }
 		d=$(iw dev "$iface" station dump 2>/dev/null) || { partial=1; continue; }
-		freq=$(printf '%s\n' "$info" | awk '
-			# "channel 36 (5180 MHz)", also on MLO "link 0:" lines; the SSID
-			# line is skipped, since an SSID may contain the same words.
-			$1 == "ssid" { next }
-			{ for (i = 1; i + 2 <= NF; i++) if ($i == "channel") { v = $(i + 2); sub(/^\(/, "", v); if (v ~ /^[0-9]+$/ && v + 0 > 1000) { print v + 0; exit } } }')
-		case "$freq" in
-			''|*[!0-9]*)
-				# No channel: an AP that is not running is fine, but clients
-				# that cannot be placed on a band make the sample incomplete.
-				case "$d" in *Station*) partial=1 ;; esac
-				continue
-				;;
-		esac
-		if [ "$freq" -ge 5925 ]; then band=2; elif [ "$freq" -ge 5000 ]; then band=1; else band=0; fi
-		# Per-client TX bytes for the rate; "connected time" tells a client
-		# that reconnected (counters restarted) from one that stayed.
-		cur="$cur$(printf '%s\n' "$d" | awk -v b="$band" -v i="$iface" '
-			/^Station / { if (mac != "") print "C", b, i, mac, tx, ct; mac = $2; tx = ""; ct = "" }
-			/tx bytes:/ { tx = $NF }
-			/connected time:/ { ct = $3 }
-			END { if (mac != "") print "C", b, i, mac, tx, ct }')$NL"
-		case "$band" in
-			0) if0="$if0 $iface"; dump0="$dump0
-$d" ;;
-			1) if1="$if1 $iface"; dump1="$dump1
-$d" ;;
-			2) if2="$if2 $iface"; dump2="$dump2
-$d" ;;
-		esac
-	done
+		records=$(wifi_records "$iface" "$info" "$d") || { partial=1; continue; }
+		cur="$cur$records$NL"
+	done <<EOF
+$list
+EOF
+	case "$NL$cur$NL" in *"${NL}P${NL}"*) partial=1 ;; esac
 
 	read -r end rest < "$R/proc/uptime" 2>/dev/null
 	# The sample (time, rates, per-client TX bytes) is shared by every open
@@ -914,8 +1033,8 @@ $d" ;;
 		-v min="$WIFI_MIN_DT" -v partial="$partial" '
 		# T <start> <rates> <end>: counters were read between start and end
 		$1 == "T" { pt = $2; pr[0] = $3; pr[1] = $4; pr[2] = $5; pe = ($6 != "" ? $6 : $2); next }
-		$1 == "S" { ptx[$3 " " $4] = $5; next }
-		$1 == "C" && $5 != "" { k = $3 " " $4; ctx[k] = $5; cb[k] = $2; cct[k] = $6; next }
+		$1 == "S" { k = $3 " " $4; ptx[k] = $5; pb[k] = $2; next }
+		$1 == "C" && $5 ~ /^[0-9]+$/ { k = $3 " " $4; ctx[k] = $5; cb[k] = $2; cct[k] = $6; next }
 		END {
 			late = end - now > span
 			r[0] = r[1] = r[2] = "0.0"; save = !partial && !late
@@ -931,7 +1050,7 @@ $d" ;;
 					# overstate the rate, its counter restarted.
 					gap = now - pe
 					for (k in ctx) {
-						if (!(k in ptx) || (cct[k] != "" && cct[k] + 1 <= gap)) continue
+						if (!(k in ptx) || pb[k] != cb[k] || (cct[k] != "-" && cct[k] + 1 <= gap)) continue
 						d = ctx[k] - ptx[k]
 						if (d > 0) s[cb[k]] += d
 					}
@@ -969,39 +1088,38 @@ $d" ;;
 			;;
 	esac
 
-	local out="" dump ifs stats mbps rate0 rate1 rate2
+	local rate0 rate1 rate2
 	read -r rate0 rate1 rate2 late <<EOF
 $rates
 EOF
 	# A sample read too slowly is reported like a partial one.
 	[ "$late" = 1 ] && partial=1
-	for band in 0 1 2; do
-		case "$band" in
-			0) ifs="$if0"; dump="$dump0" ;;
-			1) ifs="$if1"; dump="$dump1" ;;
-			2) ifs="$if2"; dump="$dump2" ;;
-		esac
-		[ -n "$ifs" ] || continue
-		case "$band" in 0) mbps=$rate0 ;; 1) mbps=$rate1 ;; 2) mbps=$rate2 ;; esac
-		stats=$(printf '%s\n' "$dump" | awk '
-			/^Station / { st++ }
-			/tx packets:/ { pk += $3 }
-			/tx retries:/ { rt += $3 }
-			/tx failed:/ { fl += $3 }
-			/^[ \t]*tx bitrate:/ { v = $3 + 0; if (v > 0) { phy += v; pn++ } }
-			/expected throughput:/ { v = $3 + 0; if (v > 0) { ex += v; en++ } }
-			/^[ \t]*signal avg:/ { for (i = 1; i <= NF; i++) if ($i ~ /^-[0-9]+$/) { s = $i + 0; ss += s; sn++; if (sn == 1 || s < mn) mn = s; break } }
-			END {
-				ap = pn ? phy / pn : 0; ae = en ? ex / en : 0
-				printf "\"stations\":%d,\"tx_packets\":%.0f,\"tx_retries\":%.0f,\"tx_failed\":%.0f,\"avg_phy_rate\":%.1f,\"avg_exp_throughput\":%.1f,\"airtime_efficiency\":%d,\"avg_signal\":%d,\"min_signal\":%d",
-					st, pk, rt, fl, ap, ae, (ap > 0 ? int(ae / ap * 100) : 0), (sn ? int(ss / sn) : 0), mn
-			}')
-		[ -n "$out" ] && out="$out,"
-		js "${ifs# }"
-		out="$out{\"band\":$band,\"interfaces\":\"$JS\",$stats,\"tx_mbps\":${mbps:-0}}"
-	done
-	printf '{"available":true,"has_wifi":true,"complete":%s,"bands":[%s]}' \
-		"$([ $partial = 0 ] && echo true || echo false)" "$out"
+	printf '%s\n' "$cur" | awk -v partial="$partial" -v r0="${rate0:-0}" -v r1="${rate1:-0}" -v r2="${rate2:-0}" "$JESC_AWK"'
+		$1 == "I" {
+			b = $2; k = b " " $3
+			if (!(k in interfaces)) { interfaces[k] = 1; ifs[b] = ifs[b] (ifs[b] == "" ? "" : " ") $3 }
+		}
+		$1 == "U" { clients[$2 " " $3] = 1 }
+		$1 == "C" {
+			b = $2; split($4, station, "/"); k = b " " $3 " " station[1]
+			if (!(k in seen)) { seen[k] = 1; st[b]++ }
+			pk[b] += $7; rt[b] += $8; fl[b] += $9
+			if ($10 + 0 > 0) { phy[b] += $10; pn[b]++ }
+			if ($11 + 0 > 0) { ex[b] += $11; en[b]++ }
+			if ($12 != "-") { ss[b] += $12; sn[b]++; if (sn[b] == 1 || $12 + 0 < mn[b]) mn[b] = $12 + 0 }
+		}
+		END {
+			for (k in clients) total++
+			printf "{\"available\":true,\"has_wifi\":true,\"complete\":%s,\"stations\":%d,\"bands\":[", (partial ? "false" : "true"), total
+			for (b = 0; b < 3; b++) {
+				if (!(b in ifs)) continue
+				ap = pn[b] ? phy[b] / pn[b] : 0; ae = en[b] ? ex[b] / en[b] : 0
+				printf "%s{\"band\":%d,\"interfaces\":\"%s\",\"stations\":%d,\"tx_packets\":%.0f,\"tx_retries\":%.0f,\"tx_failed\":%.0f,\"avg_phy_rate\":%.1f,\"avg_exp_throughput\":%.1f,\"airtime_efficiency\":%d,\"avg_signal\":%d,\"min_signal\":%d,\"tx_mbps\":%s}",
+					(n++ ? "," : ""), b, jesc(ifs[b]), st[b], pk[b], rt[b], fl[b], ap, ae,
+					(ap > 0 ? int(ae / ap * 100) : 0), (sn[b] ? int(ss[b] / sn[b]) : 0), mn[b], (b == 0 ? r0 : b == 1 ? r1 : r2)
+			}
+			printf "]}"
+		}'
 }
 
 # ── Setters ─────────────────────────────────────────────────────────────
@@ -1045,38 +1163,130 @@ set_flow_offload() {
 	printf '{"result":"ok","enabled":%s}' "$en"
 }
 
+# Rewrite one module configuration file. Autoload entries must keep the
+# module name even when wed_enable was their only argument. modules.conf gets
+# the one canonical value; boot and normal autoload then inherit that value.
+wed_rewrite() {
+	awk -v mod="$1" -v val="$2" -v conf="$3" "$KARGS_AWK$WED_LINES_AWK"'
+		{
+			if (!wed_line($0, conf)) { print; next }
+			n = kargs(WA_ARGS, t); rest = ""; hit = 0
+			for (j = 1; j <= n; j++) {
+				karg(t[j])
+				if (KN == "wed_enable") hit = 1; else rest = rest " " t[j]
+			}
+			if (!hit) { print; next }
+			if (!conf || rest != "") print WA_PREFIX rest (WA_SUFFIX != "" ? " " WA_SUFFIX : "")
+			else if (WA_SUFFIX != "") print WA_SUFFIX
+		}
+		END { if (conf) print "options " mod " wed_enable=" val }
+		' "$4"
+}
+
+# Stage all affected files before replacing any. The temporary files are
+# hidden in the destination directory: rename/rollback stay on one filesystem,
+# and kmodloader never mistakes a leftover staging file for an autoload entry.
+wed_stage() {
+	local mod="$1" val="$2" f target conf tmp old step seen="$NL" i=0
+	set -- "$MODCONF" "$R"/etc/modules-boot.d/* "$R"/etc/modules.d/*
+	for f in "$@"; do
+		conf=0
+		if [ "$f" = "$MODCONF" ]; then
+			conf=1
+			[ ! -e "$f" ] || [ -f "$f" ] || return 1
+		else
+			[ -f "$f" ] || continue
+		fi
+		target=$(readlink -f "$f") || return 1
+		case "$target" in ''|*"$NL"*) return 1 ;; esac
+		case "$seen" in *"$NL$target$NL"*) continue ;; esac
+		seen="$seen$target$NL"
+		if [ -f "$target" ]; then
+			# A quote spanning lines/files cannot be rewritten independently.
+			# Reject it before installing any file; preserve unrelated entries.
+			awk -v mod="$mod" -v conf="$conf" "$KARGS_AWK$WED_LINES_AWK"'
+				wed_line($0, conf) {
+					q = WA_ARGS
+					if (gsub(/"/, "", q) % 2) { unclosed = 1; exit }
+					n = kargs(WA_ARGS, t)
+					for (j = 1; j <= n; j++) { karg(t[j]); if (KN == "wed_enable") hit = 1 }
+				}
+				END { if (unclosed) exit 11; if (hit) exit 10 }
+				' "$target" >/dev/null 2>&1
+			case "$?" in
+				0) [ "$conf" = 1 ] || continue ;;
+				10) ;;
+				11) WED_STAGE_ERROR='cannot safely save WED settings with quotes spanning lines or files'; return 1 ;;
+				*) return 1 ;;
+			esac
+		fi
+		i=$((i + 1)); step="$WED_TXN/$i"
+		mkdir "$step" || return 1
+		printf '%s\n' "$target" > "$step/path" || return 1
+		tmp=$(mktemp "${target%/*}/.mtkw-new.XXXXXX") || return 1
+		printf '%s\n' "$tmp" > "$step/new" || { rm -f "$tmp"; return 1; }
+		if [ -f "$target" ]; then
+			old=$(mktemp "${target%/*}/.mtkw-old.XXXXXX") || return 1
+			printf '%s\n' "$old" > "$step/old" || { rm -f "$old"; return 1; }
+			cp -p "$target" "$old" && cp -p "$target" "$tmp" || return 1
+			wed_rewrite "$mod" "$val" "$conf" "$target" > "$tmp" || return 1
+		else
+			chmod 0644 "$tmp" || return 1
+			wed_rewrite "$mod" "$val" "$conf" /dev/null > "$tmp" || return 1
+		fi
+	done
+}
+
+wed_cleanup() {
+	local step file
+	for step in "$WED_TXN"/*; do
+		[ -d "$step" ] || continue
+		for file in new old; do rd "$step/$file"; [ -z "$RD" ] || rm -f "$RD"; done
+	done
+	rm -rf "$WED_TXN"
+}
+
 set_wed_enable() {
-	local en mod tmp val=N
+	local en mod val=N step target tmp old index applied= failed=0 restore_failed=0 WED_TXN
+	local WED_STAGE_ERROR='cannot prepare the WED settings'
 	en=$(json_input "$1" enabled)
 	case "$en" in 0|1) ;; *) printf '{"error":"enabled must be 0 or 1"}'; return ;; esac
 	[ "$en" = 1 ] && val=Y
 	mod=$(wed_module)
-	tmp="$MODCONF.mtkw.$$"
-	# Remove only this module's wed_enable tokens, split the way kmodloader
-	# splits a line: other options and comments stay. The new value is then
-	# written explicitly, so another line cannot keep WED on.
-	if [ -f "$MODCONF" ]; then
-		awk -v mod="$mod" "$KARGS_AWK"'
-			{
-				line = $0; cmt = ""
-				if ((i = index(line, "#")) > 0) { cmt = substr(line, i); line = substr(line, 1, i - 1) }
-				split(line, w)
-				if (w[1] != "options" || w[2] != mod) { print; next }
-				sub(/^[ \t]*options[ \t]+[^ \t]+/, "", line)
-				n = kargs(line, t); rest = ""; hit = 0
-				for (j = 1; j <= n; j++) {
-					karg(t[j])
-					if (KN == "wed_enable") hit = 1; else rest = rest " " t[j]
-				}
-				if (!hit) { print; next }
-				if (rest != "") print "options " mod rest (cmt != "" ? " " cmt : "")
-				else if (cmt != "") print cmt
-			}' "$MODCONF" 2>/dev/null > "$tmp" ||
-			{ rm -f "$tmp"; printf '{"error":"cannot read modules.conf"}'; return; }
+	WED_TXN=$(mktemp -d "$STATE/wed-save.XXXXXX") ||
+		{ printf '{"error":"cannot prepare the WED settings"}'; return; }
+	if ! wed_stage "$mod" "$val"; then
+		wed_cleanup
+		printf '{"error":"%s"}' "$WED_STAGE_ERROR"
+		return
 	fi
-	printf 'options %s wed_enable=%s\n' "$mod" "$val" 2>/dev/null >> "$tmp" &&
-		mv -f "$tmp" "$MODCONF" 2>/dev/null ||
-		{ rm -f "$tmp"; printf '{"error":"cannot write modules.conf"}'; return; }
+	for step in "$WED_TXN"/*; do
+		rd "$step/path"; target=$RD
+		rd "$step/new"; tmp=$RD
+		if ! mv -f "$tmp" "$target"; then failed=1; break; fi
+		# Tracking successful renames must not depend on another file write.
+		applied="${step##*/} $applied"
+	done
+	if [ "$failed" = 1 ]; then
+		for index in $applied; do
+			step="$WED_TXN/$index"
+			rd "$step/path"; target=$RD
+			rd "$step/old"; old=$RD
+			if [ -n "$old" ]; then mv -f "$old" "$target" || restore_failed=1
+			else rm -f "$target" || restore_failed=1
+			fi
+		done
+		if [ "$restore_failed" = 1 ]; then
+			# Keep the originals and path mappings if a restore also failed.
+			js "$WED_TXN"
+			printf '{"error":"cannot save or restore the WED settings; recovery files: %s"}' "$JS"
+		else
+			wed_cleanup
+			printf '{"error":"cannot save the WED settings; previous settings restored"}'
+		fi
+		return
+	fi
+	wed_cleanup
 	printf '{"result":"ok","enabled":%s,"module":"%s","reboot_required":true}' "$en" "$mod"
 }
 

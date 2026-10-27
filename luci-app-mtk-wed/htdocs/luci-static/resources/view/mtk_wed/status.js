@@ -574,7 +574,9 @@ function renderWifi(wf, st) {
 	var partial = wf.complete === false ? E('div', { 'class': 'ai-hint', 'style': 'margin:0 0 var(--ds-sp-2)' },
 		_('Some Wi-Fi data could not be read or saved; the rates may be incomplete.')) : null;
 	var path = !Array.isArray((st || {}).wed) ? '' : wedSummary(st).attached ? 'WED' : 'DMA';
-	var clients = bands.reduce(function(n, b) { return n + (b.stations || 0); }, 0);
+	/* An MLO station can appear on more than one band. */
+	var clients = typeof wf.stations === 'number' ? wf.stations
+		: bands.reduce(function(n, b) { return n + (b.stations || 0); }, 0);
 	return { summary: _('%d clients').format(clients), body: E('div', {}, [ partial, E('div', { 'class': 'ai-grid ai-grid--3' }, bands.map(function(b) {
 		var info = aui.BANDS[b.band];
 		var accent = info ? 'var(' + info.varName + ')' : 'var(--ds-border-strong)';

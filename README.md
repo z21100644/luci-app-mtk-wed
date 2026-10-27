@@ -1,7 +1,5 @@
 # luci-app-mtk-wed
 
-English | [繁體中文](README.zh-Hant.md)
-
 A LuCI hardware offload status page for MediaTek Filogic (MT798x) on mainline OpenWrt.
 The interface follows `luci-app-airoha-npu` from
 [luci-app-airoha](https://github.com/naoki66/luci-app-airoha) (Apache-2.0); the backend
@@ -30,12 +28,20 @@ detected from the system, so no per-board configuration is needed:
     build time of the WO firmware it loaded (the WO firmware itself has no version number).
   - Hardware flow offload switch (`firewall.@defaults[0].flow_offloading_hw`).
   - Wi-Fi acceleration switch: writes `options <driver> wed_enable=Y` to
-    `/etc/modules.conf`, applied after a reboot. The driver is the mt76 module actually
+    `/etc/modules.conf` and removes conflicting WED parameters for that driver from
+    `/etc/modules-boot.d/` and `/etc/modules.d/`, applied after a reboot. Other module
+    options, comments, file permissions and symlinks are preserved. The driver is the mt76 module actually
     bound to the wireless card (`mt7915e` or `mt7996e`); mainline OpenWrt does not enable
     WED by default.
+    Parameter values with quotes spanning lines or files are read correctly, but
+    saving is rejected before changing the configuration; keep each quoted value
+    on one line to use the switch.
   - Hardware MAC counters of each GDM (needs `ethtool`).
 - Wi-Fi per band: interfaces, clients, retry rate, PHY and expected rates, signal. Hidden
-  when there is no wireless card or no AP is enabled.
+  when there is no wireless card or no AP is enabled. MLO statistics are assigned by
+  link frequency without adding the station-level counters twice, and each station
+  is counted once in the client summary. Ambiguous or incomplete link data is marked
+  incomplete and does not replace the last complete rate sample.
 - PPE flow table (at the bottom of the page): the full flow table from
   `/sys/kernel/debug/ppeN`, filtered by state, type and PPE, 50 entries per page. It is
   read every 10 seconds by default; the interval can be set from 5 to 60 seconds in the
