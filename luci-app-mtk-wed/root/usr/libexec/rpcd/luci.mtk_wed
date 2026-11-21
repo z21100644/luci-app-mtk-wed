@@ -377,6 +377,7 @@ get_ppe_entries() {
 		}
 		function esc(s) { return (index(s, "\\") || index(s, "\"")) ? jesc(s) : s }
 		function field(k) { return values[k] }
+		function num(s) { return (s ~ /^[0-9]+$/) ? sprintf("%.0f", s + 0) : "null" }
 		function decode_fields(   i, eq, key) {
 			delete values
 			for (i = 1; i <= NF; i++) {
@@ -423,7 +424,7 @@ get_ppe_entries() {
 			pk = field("packets"); by = field("bytes")
 			row = sprintf("{\"ppe\":%d,\"index\":\"%s\",\"state\":\"%s\",\"type\":\"%s\",\"orig\":\"%s\",\"new\":\"%s\",\"eth\":\"%s\",\"vlan\":\"%s\",\"packets\":%s,\"bytes\":%s}",
 				ppe, esc($1), esc($2), esc(type), esc(field("orig")), esc(field("new")), esc(field("eth")),
-				esc(v), (pk == "" ? "null" : pk + 0), (by == "" ? "null" : by + 0))
+				esc(v), num(pk), num(by))
 			out = out (n ? "," : "") row
 			n++
 		}
@@ -927,7 +928,7 @@ get_mac_stats() {
 		out="$out{\"netdev\":\"$JS\",\"gdm\":$gdm$(ethtool -S "$i" 2>/dev/null | awk '
 			BEGIN { split("tx_bytes tx_packets tx_skip tx_collisions rx_bytes rx_packets rx_overflow rx_fcs_errors rx_short_errors rx_long_errors rx_checksum_errors rx_flow_control_packets", k, " ") }
 			{ gsub(/^[ \t]+|:$/, "", $1); key = $1; sub(/:$/, "", key); v[key] = $2 }
-			END { for (j = 1; j in k; j++) printf ",\"%s\":%s", k[j], (k[j] in v ? v[k[j]] + 0 : "null") }')}"
+			END { for (j = 1; j in k; j++) printf ",\"%s\":%s", k[j], ((k[j] in v && v[k[j]] ~ /^[0-9]+$/) ? sprintf("%.0f", v[k[j]] + 0) : "null") }')}"
 	done
 	printf '{"available":true,"macs":[%s]}' "$out"
 }
