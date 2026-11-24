@@ -20,6 +20,10 @@
 R="${MTKW_ROOT:-}"
 DBG="$R/sys/kernel/debug"
 MODCONF="$R/etc/modules.conf"
+FW_CONF="$R/etc/config/firewall"
+FW_INIT="$R/etc/init.d/firewall"
+FW4_STATE="$R/var/run/fw4.state"
+FW4_LOCK="$R/var/run/fw4.lock"
 # Samples and caches live in a directory only root can create: unprivileged
 # daemons can write to /tmp but not to /var/run, so none of these names can
 # be planted there as a FIFO, a symlink or forged data.
@@ -34,6 +38,82 @@ WIFI_MAX_SPAN=1
 NL='
 '
 PPE_MAX_ENTRIES=1000
+PPE_LOCK_WAIT="${PPE_LOCK_WAIT:-10}"
+UCI_LOCK_WAIT="${UCI_LOCK_WAIT:-10}"
+UCI_CAS_TRIES="${UCI_CAS_TRIES:-5}"
+FW_RELOAD_WAIT="${FW_RELOAD_WAIT:-10}"
+case "$PPE_LOCK_WAIT" in ''|*[!0-9]*|0?*) PPE_LOCK_WAIT=10 ;; esac
+case "$UCI_LOCK_WAIT" in ''|*[!0-9]*|0?*) UCI_LOCK_WAIT=10 ;; esac
+case "$UCI_CAS_TRIES" in ''|*[!0-9]*|0|0?*) UCI_CAS_TRIES=5 ;; esac
+case "$FW_RELOAD_WAIT" in ''|*[!0-9]*|0|0?*) FW_RELOAD_WAIT=10 ;; esac
+CLEANUP_PATHS=
+CLEANUP_WED_TXN=
+CLEANUP_RPCD_SID=
+CLEANUP_FLOW_APPLY=
+CLEANUP_FLOW_MANUAL=0
+
+rpcd_session_destroy() {
+	[ -n "$CLEANUP_RPCD_SID" ] || return 0
+	# Interrupted after dispatching a checked apply. Only its owning SID
+	# can roll it back. The daemon also has an independent rollback timer.
+	if [ -n "$CLEANUP_FLOW_APPLY" ]; then
+		if ubus -S call uci rollback "{\"ubus_rpc_session\":\"$CLEANUP_RPCD_SID\"}" >/dev/null 2>&1 4>&- 7<&- &&
+			[ "$CLEANUP_FLOW_MANUAL" = 1 ]; then
+			"$FW_INIT" reload >/dev/null 2>&1 4>&- 7<&-
+		fi
+		CLEANUP_FLOW_APPLY=
+		CLEANUP_FLOW_MANUAL=0
+	fi
+	ubus call session destroy "{\"ubus_rpc_session\":\"$CLEANUP_RPCD_SID\"}" >/dev/null 2>&1 4>&- 7<&-
+	CLEANUP_RPCD_SID=
+}
+
+cleanup_add() {
+	[ -n "$1" ] || return 0
+	CLEANUP_PATHS="$CLEANUP_PATHS$1$NL"
+}
+
+cleanup_del() {
+	local p="$1" line rest=
+	[ -n "$p" ] && [ -n "$CLEANUP_PATHS" ] || return 0
+	while IFS= read -r line; do
+		[ -n "$line" ] && [ "$line" != "$p" ] && rest="$rest$line$NL"
+	done <<EOF
+$CLEANUP_PATHS
+EOF
+	CLEANUP_PATHS=$rest
+}
+
+cleanup_on_exit() {
+	local p
+	trap - EXIT INT TERM HUP
+	rpcd_session_destroy
+	if [ -n "$CLEANUP_WED_TXN" ]; then
+		WED_TXN=$CLEANUP_WED_TXN
+		CLEANUP_WED_TXN=
+		wed_cleanup
+	fi
+	if [ -n "$CLEANUP_PATHS" ]; then
+		while IFS= read -r p; do
+			[ -n "$p" ] && rm -rf "$p" 2>/dev/null
+		done <<EOF
+$CLEANUP_PATHS
+EOF
+		CLEANUP_PATHS=
+	fi
+}
+
+cleanup_on_signal() {
+	local sig="$1"
+	cleanup_on_exit
+	trap - "$sig"
+	kill -"$sig" $$ 2>/dev/null || exit 128
+}
+
+trap 'cleanup_on_exit' EXIT
+trap 'cleanup_on_signal INT' INT
+trap 'cleanup_on_signal TERM' TERM
+trap 'cleanup_on_signal HUP' HUP
 
 # jesc(s): s escaped for a JSON string. It is built by concatenation only:
 # BusyBox awk versions differ in how gsub() reads backslashes in a
@@ -67,10 +147,23 @@ rd() {
 	return 0
 }
 
-# ri <file> <fallback>: the file's integer value in $RI, else the fallback.
+# ri <file> <fallback>: the file's RFC 8259 integer value in $RI, else the fallback.
 ri() {
 	rd "$1"
-	case "$RD" in ''|*[!0-9-]*) RI=$2 ;; *) RI=$RD ;; esac
+	case "$RD" in
+		0) RI=0 ;;
+		[1-9]*)
+			case "${RD#?}" in
+				*[!0-9]*) RI=$2 ;;
+				*) RI=$RD ;;
+			esac ;;
+		-[1-9]*)
+			case "${RD#??}" in
+				*[!0-9]*) RI=$2 ;;
+				*) RI=$RD ;;
+			esac ;;
+		*) RI=$2 ;;
+	esac
 }
 
 # js <value>: the value escaped for a JSON string in $JS; plain values skip
@@ -89,7 +182,20 @@ read_first() {
 
 int_or() {
 	# int_or <value> <fallback>
-	case "$1" in ''|*[!0-9-]*) printf '%s' "$2" ;; *) printf '%s' "$1" ;; esac
+	case "$1" in
+		0) printf '0' ;;
+		[1-9]*)
+			case "${1#?}" in
+				*[!0-9]*) printf '%s' "$2" ;;
+				*) printf '%s' "$1" ;;
+			esac ;;
+		-[1-9]*)
+			case "${1#??}" in
+				*[!0-9]*) printf '%s' "$2" ;;
+				*) printf '%s' "$1" ;;
+			esac ;;
+		*) printf '%s' "$2" ;;
+	esac
 }
 
 # Module arguments split and decoded like the kernel's next_arg(): spaces
@@ -139,15 +245,282 @@ json_input() {
 	printf '%s' "$1" | jsonfilter -e "@.$2" 2>/dev/null
 }
 
+# Read a committed UCI option into $UCI_VAL without ever seeing /tmp/.uci:
+# OpenWrt libuci keeps /tmp/.uci in ctx->delta_path even when -t <savedir> is
+# passed, so we read a copy under a unique temp package name that cannot exist
+# in /tmp/.uci. Runs in the main shell so EXIT/TERM traps track $tmp cleanly.
+uci_ro_read() {
+	local pkg="$1" opt="$2" src="$R/etc/config/$1" tmp sfx tpkg rc=1
+	UCI_VAL=
+	[ -r "$src" ] || return 1
+	[ -d "$STATE" ] || mkdir -p -m 0700 "$STATE" 2>/dev/null
+	tmp=$(mktemp -d "$STATE/uci-ro.XXXXXX" 2>/dev/null || mktemp -d "/tmp/mtkw-uci-ro.XXXXXX" 2>/dev/null) || return 1
+	cleanup_add "$tmp"
+	sfx=${tmp##*.}
+	case "$sfx" in ''|*[!A-Za-z0-9_]*) sfx=$$ ;; esac
+	tpkg="mtkw_$sfx"
+	if mkdir -p "$tmp/cfg" "$tmp/save" 2>/dev/null && cp "$src" "$tmp/cfg/$tpkg" 2>/dev/null; then
+		if UCI_VAL=$(uci -c "$tmp/cfg" -t "$tmp/save" -q get "$tpkg.$opt"); then
+			rc=0
+		fi
+	fi
+	rm -rf "$tmp"
+	cleanup_del "$tmp"
+	return $rc
+}
+
+uci_ro_get() {
+	uci_ro_read "$1" "$2" || return 1
+	printf '%s\n' "$UCI_VAL"
+}
+
+# Read both committed firewall flow-offload options from a single isolated temp
+# copy (sets UCI_FO, UCI_HAD_FO, UCI_FOH, UCI_HAD_FOH).
+uci_ro_flow() {
+	local src="$FW_CONF" tmp sfx tpkg rc=1
+	UCI_FO=; UCI_HAD_FO=0; UCI_FOH=; UCI_HAD_FOH=0
+	[ -r "$src" ] || return 1
+	[ -d "$STATE" ] || mkdir -p -m 0700 "$STATE" 2>/dev/null
+	tmp=$(mktemp -d "$STATE/uci-ro.XXXXXX" 2>/dev/null || mktemp -d "/tmp/mtkw-uci-ro.XXXXXX" 2>/dev/null) || return 1
+	cleanup_add "$tmp"
+	sfx=${tmp##*.}
+	case "$sfx" in ''|*[!A-Za-z0-9_]*) sfx=$$ ;; esac
+	tpkg="mtkw_$sfx"
+	if mkdir -p "$tmp/cfg" "$tmp/save" 2>/dev/null && cp "$src" "$tmp/cfg/$tpkg" 2>/dev/null &&
+		[ "$(uci -c "$tmp/cfg" -t "$tmp/save" -q get "$tpkg.@defaults[0]" 4>&- 7<&-)" = defaults ]; then
+		rc=0
+		if UCI_FO=$(uci -c "$tmp/cfg" -t "$tmp/save" -q get "$tpkg.@defaults[0].flow_offloading" 4>&- 7<&-); then
+			UCI_HAD_FO=1
+		fi
+		if UCI_FOH=$(uci -c "$tmp/cfg" -t "$tmp/save" -q get "$tpkg.@defaults[0].flow_offloading_hw" 4>&- 7<&-); then
+			UCI_HAD_FOH=1
+		fi
+	fi
+	rm -rf "$tmp"
+	cleanup_del "$tmp"
+	return "$rc"
+}
+
+# flock_wait <x|s> <fd> <max_sec>: bounded non-blocking flock retry.
+flock_wait() {
+	local mode="$1" fd="$2" max="$3" i=0 rc
+	while :; do
+		if [ "$mode" = s ]; then flock -s -n "$fd"; else flock -n "$fd"; fi
+		rc=$?
+		[ "$rc" = 0 ] && return 0
+		[ "$rc" = 1 ] || return 2
+		[ "$i" -lt "$max" ] || return 1
+		i=$((i + 1))
+		sleep 1
+	done
+}
+
+# Resolve $1 through readlink -f when it is a symlink, into $UCI_TARGET.
+uci_resolve_target() {
+	if [ -L "$1" ]; then
+		UCI_TARGET=$(readlink -f "$1" 2>/dev/null) || return 1
+	else
+		UCI_TARGET=$1
+	fi
+}
+
+# Atomically apply UCI mutations to $R/etc/config/<pkg> under a unique temp
+# package name inside a private -c/-t dir so libuci's fixed /tmp/.uci
+# delta_path can never read, commit, or alter unrelated staged changes.
+# Uses target-file flock + optimistic compute + locked CAS verify-and-swap so
+# concurrent UCI commits or in-place edits are cleanly merged and never lost.
+# Usage: uci_pkg_apply <pkg> <op>... where op is set:<opt=val>, del:<opt>, keep
+uci_pkg_apply() {
+	local pkg="$1" conf target cur_target target_dir target_base tmp sfx tpkg stage op rest
+	local try=0 max_tries="$UCI_CAS_TRIES" had_target snap_ok lrc uci_rc rc=1
+	local cur_fo cur_had_fo cur_foh cur_had_foh
+	shift
+	[ -d "$STATE" ] || mkdir -p -m 0700 "$STATE" 2>/dev/null
+	{
+		flock_wait x 5 "$UCI_LOCK_WAIT" || return 1
+		tmp=$(mktemp -d "$STATE/uci.XXXXXX" 2>/dev/null) || return 1
+		cleanup_add "$tmp"
+		sfx=${tmp##*.}
+		case "$sfx" in ''|*[!A-Za-z0-9_]*) sfx=$$ ;; esac
+		tpkg="mtkw_$sfx"
+		conf="$R/etc/config/$pkg"
+		while [ "$try" -lt "$max_tries" ]; do
+			try=$((try + 1))
+			rc=1
+			rm -rf "$tmp/cfg" "$tmp/save" "$tmp/orig" 2>/dev/null
+			mkdir -p "$tmp/cfg" "$tmp/save" 2>/dev/null || break
+
+			# 1. Resolve target (following symlinks) and verify regular/absent.
+			uci_resolve_target "$conf" || break
+			target=$UCI_TARGET
+			[ ! -e "$target" ] || [ -f "$target" ] || break
+			target_dir=${target%/*}
+			target_base=${target##*/}
+
+			# 2. Snapshot $target under brief shared flock (or create empty if absent).
+			had_target=0
+			snap_ok=0
+			if [ -f "$target" ]; then
+				had_target=1
+				if { command exec 6< "$target"; } 2>/dev/null; then
+					flock_wait s 6 "$UCI_LOCK_WAIT"
+					lrc=$?
+					if [ "$lrc" = 0 ]; then
+						if [ ! -e /proc/self/fd/6 ] || [ /proc/self/fd/6 -ef "$target" ]; then
+							if cp -p "$target" "$tmp/orig" 2>/dev/null && cp -p "$tmp/orig" "$tmp/cfg/$tpkg" 2>/dev/null; then
+								snap_ok=1
+							else
+								exec 6<&-
+								[ -e "$target" ] && break
+								continue
+							fi
+						fi
+						exec 6<&-
+						[ "$snap_ok" = 1 ] || continue
+					else
+						exec 6<&-
+						break
+					fi
+				else
+					# Vanished between [ -f ] and open -> retry against current state.
+					continue
+				fi
+			elif [ ! -e "$target" ]; then
+				: > "$tmp/orig" && chmod 0644 "$tmp/orig" 2>/dev/null &&
+					cp -p "$tmp/orig" "$tmp/cfg/$tpkg" 2>/dev/null || break
+			else
+				break
+			fi
+
+			# 3. Optional atomic pre-change flow_offload snapshot or conflict check inside the winning attempt.
+			if [ "${UCI_SNAP_FLOW:-0}" = 1 ]; then
+				UCI_FO=; UCI_HAD_FO=0; UCI_FOH=; UCI_HAD_FOH=0
+				if UCI_FO=$(uci -c "$tmp/cfg" -t "$tmp/save" -q get "$tpkg.@defaults[0].flow_offloading"); then
+					UCI_HAD_FO=1
+				fi
+				if UCI_FOH=$(uci -c "$tmp/cfg" -t "$tmp/save" -q get "$tpkg.@defaults[0].flow_offloading_hw"); then
+					UCI_HAD_FOH=1
+				fi
+			fi
+			if [ "${UCI_EXPECT_FLOW:-0}" = 1 ]; then
+				cur_fo=; cur_had_fo=0; cur_foh=; cur_had_foh=0
+				if cur_fo=$(uci -c "$tmp/cfg" -t "$tmp/save" -q get "$tpkg.@defaults[0].flow_offloading"); then
+					cur_had_fo=1
+				fi
+				if cur_foh=$(uci -c "$tmp/cfg" -t "$tmp/save" -q get "$tpkg.@defaults[0].flow_offloading_hw"); then
+					cur_had_foh=1
+				fi
+				if { [ "${UCI_EXP_CHK_FO:-0}" = 1 ] && { [ "$cur_had_fo" != 1 ] || [ "$cur_fo" != "$UCI_EXP_FO" ]; }; } ||
+					[ "$cur_had_foh" != 1 ] || [ "$cur_foh" != "$UCI_EXP_FOH" ]; then
+					rc=2
+					break
+				fi
+			fi
+
+			# 4. Apply UCI ops and commit inside private $tmp (NO LOCK_EX on $target).
+			uci_rc=0
+			for op in "$@"; do
+				case "$op" in
+					set:*) rest=${op#set:}; uci -c "$tmp/cfg" -t "$tmp/save" -q set "$tpkg.$rest" || { uci_rc=1; break; } ;;
+					del:*) rest=${op#del:}; uci -c "$tmp/cfg" -t "$tmp/save" -q delete "$tpkg.$rest" || { uci_rc=1; break; } ;;
+					keep) ;;
+					*) uci_rc=1; break ;;
+				esac
+			done
+			[ "$uci_rc" = 0 ] && uci -c "$tmp/cfg" -t "$tmp/save" -q commit "$tpkg" || uci_rc=1
+			[ "$uci_rc" = 0 ] || break
+
+			# 5. No-op optimization: skip disk write when committed content is unchanged.
+			if [ "$had_target" = 1 ] && cmp -s "$tmp/orig" "$tmp/cfg/$tpkg" 2>/dev/null; then
+				if [ -f "$target" ] && cmp -s "$tmp/orig" "$target" 2>/dev/null; then
+					rc=0
+					break
+				fi
+				continue
+			fi
+
+			# 6. Stage into same directory as $target (still NO LOCK_EX on $target).
+			mkdir -p "$target_dir" 2>/dev/null || break
+			stage=$(mktemp "$target_dir/.$target_base.mtkw.XXXXXX" 2>/dev/null) || break
+			cleanup_add "$stage"
+			if [ "$had_target" = 1 ]; then
+				cp -p "$tmp/orig" "$stage" 2>/dev/null && cat "$tmp/cfg/$tpkg" 2>/dev/null > "$stage"
+			else
+				chmod 0644 "$stage" 2>/dev/null && cat "$tmp/cfg/$tpkg" 2>/dev/null > "$stage"
+			fi || { rm -f "$stage"; cleanup_del "$stage"; break; }
+
+			# 7. Sub-millisecond locked verify-and-swap.
+			uci_resolve_target "$conf" || { rm -f "$stage"; cleanup_del "$stage"; break; }
+			cur_target=$UCI_TARGET
+			if [ "$cur_target" != "$target" ]; then
+				rm -f "$stage"; cleanup_del "$stage"
+				continue
+			fi
+
+			if [ "$had_target" = 1 ]; then
+				if ! { command exec 6< "$target"; } 2>/dev/null; then
+					rm -f "$stage"; cleanup_del "$stage"
+					continue
+				fi
+				flock_wait x 6 "$UCI_LOCK_WAIT"
+				lrc=$?
+				if [ "$lrc" != 0 ]; then
+					exec 6<&-
+					rm -f "$stage"; cleanup_del "$stage"
+					break
+				fi
+				if { [ ! -e /proc/self/fd/6 ] || [ /proc/self/fd/6 -ef "$target" ]; } &&
+					cmp -s "$tmp/orig" "$target" 2>/dev/null; then
+					if mv -f "$stage" "$target" 2>/dev/null; then
+						cleanup_del "$stage"
+						exec 6<&-
+						rc=0
+						break
+					fi
+					exec 6<&-
+					rm -f "$stage"; cleanup_del "$stage"
+					break
+				fi
+				# Concurrent modification (inode swap or in-place write): retry.
+				exec 6<&-
+				rm -f "$stage"; cleanup_del "$stage"
+				continue
+			else
+				# Create absent file atomically via POSIX link(2) (EEXIST if raced).
+				if ln "$stage" "$target" 2>/dev/null; then
+					rm -f "$stage"; cleanup_del "$stage"
+					rc=0
+					break
+				fi
+				if [ -e "$target" ]; then
+					rm -f "$stage"; cleanup_del "$stage"
+					continue
+				fi
+				# Fallback for filesystems without hardlink support while still absent.
+				if [ ! -e "$target" ] && mv -f "$stage" "$target" 2>/dev/null; then
+					cleanup_del "$stage"
+					rc=0
+					break
+				fi
+				rm -f "$stage"; cleanup_del "$stage"
+				break
+			fi
+		done
+		rm -rf "$tmp"
+		cleanup_del "$tmp"
+		return $rc
+	} 5> "$STATE/uci.lock"
+}
+
 # ── Board / CPU ─────────────────────────────────────────────────────────
 
 board_compatible() {
-	tr '\0' ' ' < "$R/proc/device-tree/compatible" 2>/dev/null | awk '{print $1}'
+	tr '\0' ' ' 2>/dev/null < "$R/proc/device-tree/compatible" | awk '{print $1}'
 }
 
 # The last compatible string names the SoC, e.g. "mediatek,mt7988a".
 soc_compatible() {
-	tr '\0' ' ' < "$R/proc/device-tree/compatible" 2>/dev/null | awk '{print $NF}'
+	tr '\0' ' ' 2>/dev/null < "$R/proc/device-tree/compatible" | awk '{print $NF}'
 }
 
 cpu_policy() {
@@ -170,7 +543,7 @@ cpu_temp_milli() {
 }
 
 cpu_json() {
-	local p gov govs freqs cur min max hwmax count arch temp
+	local p gov govs freqs cur min max hwmax count arch temp cores=
 	p=$(cpu_policy)
 	count=$(grep -c '^processor' "$R/proc/cpuinfo" 2>/dev/null)
 	arch=$(awk -F': *' '/^CPU part/{print $2; exit}' "$R/proc/cpuinfo" 2>/dev/null)
@@ -184,18 +557,28 @@ cpu_json() {
 		rd "$p/scaling_available_governors"; govs=$RD
 		rd "$p/scaling_available_frequencies"; freqs=$RD
 		ri "$p/scaling_cur_freq" 0; cur=$RI
+		[ "$cur" -gt 0 ] || { ri "$p/cpuinfo_cur_freq" 0; cur=$RI; }
 		ri "$p/cpuinfo_min_freq" 0; min=$RI
 		ri "$p/cpuinfo_max_freq" 0; hwmax=$RI
 		ri "$p/scaling_max_freq" 0; max=$RI
+	fi
+	if [ -r "$R/proc/stat" ]; then
+		# Cumulative per-core jiffies; %.0f avoids 32-bit int overflow in BusyBox awk.
+		# $7 is hard irq and $8 is pure softirq; keep them separate.
+		cores=$(awk '/^cpu[0-9]+[[:space:]]/ && NF >= 5 {
+			printf "%s{\"id\":%d,\"total\":%.0f,\"idle\":%.0f,\"sirq\":%.0f,\"irq\":%.0f}",
+				(n++ ? "," : ""), substr($1, 4) + 0,
+				$2 + $3 + $4 + $5 + $6 + $7 + $8 + $9, $5 + $6, $8 + 0, $7 + 0
+		}' "$R/proc/stat" 2>/dev/null) || cores=
 	fi
 	case "$count" in ''|*[!0-9]*) count=0 ;; esac
 	js "$arch"; arch=$JS
 	js "$gov"; gov=$JS
 	js "$govs"; govs=$JS
 	js "$freqs"; freqs=$JS
-	printf '"cpu":{"count":%s,"arch":"%s","temp_milli":%s,"cpufreq":%s,"governor":"%s","governors":"%s","frequencies":"%s","cur_freq":%s,"min_freq":%s,"hw_max_freq":%s,"max_freq":%s}' \
+	printf '"cpu":{"count":%s,"arch":"%s","temp_milli":%s,"cpufreq":%s,"governor":"%s","governors":"%s","frequencies":"%s","cur_freq":%s,"min_freq":%s,"hw_max_freq":%s,"max_freq":%s,"cores":[%s]}' \
 		"$count" "$arch" "$temp" "$([ -n "$p" ] && echo true || echo false)" \
-		"$gov" "$govs" "$freqs" "${cur:-0}" "${min:-0}" "${hwmax:-0}" "${max:-0}"
+		"$gov" "$govs" "$freqs" "${cur:-0}" "${min:-0}" "${hwmax:-0}" "${max:-0}" "$cores"
 }
 
 # Monotonic seconds: no date process and no wall-clock/NTP jumps.
@@ -222,25 +605,54 @@ ppe_fresh() {
 # One caller collects at a time; the others wait and take its snapshot, so
 # concurrent requests cannot multiply the copies held in RAM.
 ppe_snapshot() {
-	local sources="$1" ttl="$2"
+	local sources="$1" ttl="$2" i=0 rc got=0
 	PPE_SNAPSHOT="$STATE/ppe.snapshot"
-	clock_now || return 1
-	ppe_fresh "$sources" "$ttl" && return 0
+	[ -d "$STATE" ] || mkdir -p -m 0700 "$STATE" 2>/dev/null
+	if ! clock_now; then
+		[ "$ttl" = 0 ] && NOW=0 || return 1
+	fi
+	[ "$ttl" -gt 0 ] && ppe_fresh "$sources" "$ttl" && return 0
 	# Read the clock again once the lock is held: a caller that waited
 	# judges, and stamps, by the time it actually samples.
-	{ flock 4 && clock_now && { ppe_fresh "$sources" "$ttl" || ppe_collect "$sources"; }; } 4> "$STATE/ppe.lock"
+	{
+		while :; do
+			if flock -n 4; then got=1; break; fi
+			rc=$?
+			[ "$rc" = 1 ] || break
+			[ "$i" -lt "$PPE_LOCK_WAIT" ] || break
+			i=$((i + 1))
+			sleep 1
+		done
+		if [ "$got" = 1 ]; then
+			if ! clock_now; then
+				[ "$ttl" = 0 ] && NOW=0 || return 1
+			fi
+			if [ "$ttl" = 0 ] || ! ppe_fresh "$sources" "$ttl"; then
+				rm -f "$PPE_SNAPSHOT".* 2>/dev/null
+				ppe_collect "$sources" || return 1
+			fi
+			return 0
+		fi
+		# Lock timed out: fall back to an existing readable snapshot if present.
+		if [ -r "$PPE_SNAPSHOT" ]; then
+			clock_now || NOW=0
+			return 0
+		fi
+		return 1
+	} 4> "$STATE/ppe.lock"
 }
 
 ppe_collect() {
 	local tmp f id
-	tmp=$(mktemp "$PPE_SNAPSHOT.XXXXXX") || return 1
-	printf '%s %s\n%s\n' "$NOW" "${tmp##*/}" "$1" > "$tmp" || { rm -f "$tmp"; return 1; }
+	tmp=$(mktemp "$PPE_SNAPSHOT.XXXXXX" 2>/dev/null) || return 1
+	cleanup_add "$tmp"
+	printf '%s %s\n%s\n' "$NOW" "${tmp##*/}" "$1" > "$tmp" || { rm -f "$tmp"; cleanup_del "$tmp"; return 1; }
 	for f in $1; do
 		id=${f%/entries}; id=${id##*/ppe}
-		printf '#PPE %s\n' "$id" >> "$tmp" || { rm -f "$tmp"; return 1; }
-		if ! cat "$f" >> "$tmp"; then rm -f "$tmp"; return 1; fi
+		printf '#PPE %s\n' "$id" >> "$tmp" || { rm -f "$tmp"; cleanup_del "$tmp"; return 1; }
+		if ! cat "$f" >> "$tmp"; then rm -f "$tmp"; cleanup_del "$tmp"; return 1; fi
 	done
-	mv -f "$tmp" "$PPE_SNAPSHOT" || { rm -f "$tmp"; return 1; }
+	mv -f "$tmp" "$PPE_SNAPSHOT" && cleanup_del "$tmp" || { rm -f "$tmp"; cleanup_del "$tmp"; return 1; }
 }
 
 ppe_reply() {
@@ -253,24 +665,35 @@ ppe_reply() {
 
 # ── PPE ─────────────────────────────────────────────────────────────────
 
-# One JSON object per PPE: entry counts by state and by type. The FOE table
-# only prints valid entries, so counting lines is enough.
+# One JSON object per PPE: entry counts by state and by type. Routed through
+# ppe_snapshot so unskipped getStatus calls serialize on ppe.lock.
 ppe_json() {
-	local d id first=1 out=""
+	local d id files="" out=""
 	for d in "$DBG"/ppe[0-9]*; do
 		[ -r "$d/entries" ] || continue
 		id=${d##*/ppe}
-		[ $first -eq 1 ] || out="$out,"
-		first=0
-		out="$out$(awk -v id="$id" '
-			{ total++; s[$2]++; t=$3; if ($4 != "" && $4 !~ /=/) t=t" "$4; ty[t]++ }
-			END {
-				printf "{\"id\":%d,\"total\":%d,\"bound\":%d,\"unbound\":%d,\"fin\":%d,\"ipv4\":%d,\"ipv6\":%d}",
-					id, total, s["BND"], s["UNB"], s["FIN"],
+		case "$id" in ''|*[!0-9]*) continue ;; esac
+		files="$files $d/entries"
+	done
+	if [ -z "$files" ]; then
+		printf '"ppe":[]'
+		return
+	fi
+	if ppe_snapshot "$files" 0 && { command exec 3< "$PPE_SNAPSHOT"; } 2>/dev/null; then
+		out=$(awk '
+			function finish() {
+				if (!active) return
+				printf "%s{\"id\":%d,\"total\":%d,\"bound\":%d,\"unbound\":%d,\"fin\":%d,\"ipv4\":%d,\"ipv6\":%d}",
+					(n++ ? "," : ""), ppe, total, s["BND"], s["UNB"], s["FIN"],
 					ty["IPv4 5T"]+ty["IPv4 3T"]+ty["DS-LITE"],
 					ty["IPv6 5T"]+ty["IPv6 3T"]+ty["6RD"]
-			}' "$d/entries" 2>/dev/null)"
-	done
+			}
+			FNR <= 2 { next }
+			$1 == "#PPE" { finish(); ppe = $2; active = 1; total = 0; delete s; delete ty; next }
+			{ total++; s[$2]++; t = $3; if ($4 != "" && $4 !~ /=/) t = t " " $4; ty[t]++ }
+			END { finish() }' /proc/self/fd/3 2>/dev/null)
+		exec 3<&-
+	fi
 	printf '"ppe":[%s]' "$out"
 }
 
@@ -306,7 +729,10 @@ get_ppe_entries() {
 	case "$type_filter" in ''|IPv4|IPv6|DS-LITE|6RD) ;; *) printf '{"error":"invalid type"}'; return ;; esac
 	case "$ppe_filter" in *[!0-9]*|???????*) printf '{"error":"invalid ppe"}'; return ;; esac
 	for d in "$DBG"/ppe[0-9]*; do
-		[ -r "$d/entries" ] && files="$files $d/entries"
+		[ -r "$d/entries" ] || continue
+		id=${d##*/ppe}
+		case "$id" in ''|*[!0-9]*) continue ;; esac
+		files="$files $d/entries"
 	done
 	if [ -z "$files" ]; then
 		printf '{"available":false,"entries":[],"total":0,"matched":0,"ppe":[]}'
@@ -326,14 +752,18 @@ get_ppe_entries() {
 				ttl=$((interval - 2))
 				;;
 		esac
-		if ! ppe_snapshot "$files" "$ttl"; then
-			printf '{"available":false,"entries":[],"ppe":[],"error":"cannot snapshot PPE tables"}'
-			return
-		fi
-		command exec 3< "$PPE_SNAPSHOT" 2>/dev/null || {
-			printf '{"available":false,"entries":[],"ppe":[],"error":"cannot read the PPE snapshot"}'
-			return
-		}
+	else
+		ttl=0
+	fi
+	if ! ppe_snapshot "$files" "$ttl"; then
+		printf '{"available":false,"entries":[],"ppe":[],"error":"cannot snapshot PPE tables"}'
+		return
+	fi
+	{ command exec 3< "$PPE_SNAPSHOT"; } 2>/dev/null || {
+		printf '{"available":false,"entries":[],"ppe":[],"error":"cannot read the PPE snapshot"}'
+		return
+	}
+	if [ "$page" -ge 0 ]; then
 		read -r stamp generation <&3
 		IFS= read -r saved <&3
 		age=$((NOW - stamp)); [ "$age" -ge 0 ] || age=0
@@ -354,11 +784,10 @@ get_ppe_entries() {
 					[ "$meta_prefix" != "$cached_json" ] && [ "$meta_suffix" != "$cached_json" ] || { meta_prefix=; meta_suffix=; }
 					;;
 			esac
-
 		fi
-		files=/proc/self/fd/3
-		snapshot=1
 	fi
+	files=/proc/self/fd/3
+	snapshot=1
 	# shellcheck disable=SC2086
 	if result=$(awk -v max="$PPE_MAX_ENTRIES" -v page="$page" -v state="$state" \
 		-v type_filter="$type_filter" -v ppe_filter="$ppe_filter" -v snapshot="$snapshot" \
@@ -375,7 +804,7 @@ get_ppe_entries() {
 				ids[++idcount] = id
 			}
 		}
-		function esc(s) { return (index(s, "\\") || index(s, "\"")) ? jesc(s) : s }
+		function esc(s) { return (index(s, "\\") || index(s, "\"") || s ~ /[[:cntrl:]]/) ? jesc(s) : s }
 		function field(k) { return values[k] }
 		function num(s) { return (s ~ /^[0-9]+$/) ? sprintf("%.0f", s + 0) : "null" }
 		function decode_fields(   i, eq, key) {
@@ -416,7 +845,7 @@ get_ppe_entries() {
 				matched++
 				if (n >= max || (page >= 0 && matched <= page * max)) next
 			}
-			type = $3; if ($4 !~ /=/) type = type " " $4
+			type = $3; if ($4 != "" && $4 !~ /=/) type = type " " $4
 			decode_fields()
 			vlan = field("vlan"); split(vlan, vl, ",")
 			v = (vl[1] + 0) ? vl[1] : "-"
@@ -449,14 +878,17 @@ get_ppe_entries() {
 			printf "]}"
 		}' $files 2>/dev/null); then
 		exec 3<&-
-		if [ "$snapshot" = 1 ]; then
-			tmp=$(mktemp "$query_cache.XXXXXX")
+		if [ "$page" -ge 0 ]; then
+			tmp=$(mktemp "$query_cache.XXXXXX" 2>/dev/null) || tmp=
 			if [ -n "$tmp" ]; then
+				cleanup_add "$tmp"
 				printf '%s\n%s\n' "$key" "$result" > "$tmp" &&
-					mv -f "$tmp" "$query_cache" || rm -f "$tmp"
+					mv -f "$tmp" "$query_cache" && cleanup_del "$tmp" || { rm -f "$tmp"; cleanup_del "$tmp"; }
 			fi
+			ppe_reply "$result" 1 "$age"
+		else
+			ppe_reply "$result" 0 0
 		fi
-		ppe_reply "$result" "$snapshot" "$age"
 	else
 		exec 3<&-
 		printf '{"available":false,"entries":[],"ppe":[],"error":"cannot read PPE tables"}'
@@ -488,9 +920,11 @@ wo_firmware() {
 			fi ;;
 		esac
 	fi
-	# The cached lines come first, marked "@", so dmesg overrides them.
-	out=$({ printf '%s' "$seen"; dmesg 2>/dev/null; } |
-		awk -v top="$top" '
+	# The cached lines come first (line 1 is cached top, then "@wed|ver|build"
+	# records) so dmesg overrides them without awk -v decoding backslashes.
+	out=$({ printf '%s\n%s' "$top" "$seen"; dmesg 2>/dev/null; } |
+		awk '
+			NR == 1 { top = $0; next }
 			/^@[0-9]+\|/ { s = substr($0, 2); i = index(s, "|"); wo[substr(s, 1, i - 1)] = substr(s, i + 1); next }
 			/attaching wed device [0-9]+ version / { s = $0; sub(/.*attaching wed device /, "", s); sub(/ .*/, "", s); n = s; next }
 			/MTK WED WO Firmware Version: [^,]*, Build Time: / {
@@ -504,9 +938,10 @@ wo_firmware() {
 	recs=
 	case "$out" in *"$NL"*) recs="${out#*"$NL"}$NL" ;; esac
 	if [ -n "$NOW" ]; then
-		tmp=$(mktemp "$WO_CACHE.XXXXXX")
+		tmp=$(mktemp "$WO_CACHE.XXXXXX" 2>/dev/null) || tmp=
 		if [ -n "$tmp" ]; then
-			printf '%s\n%s\n%s' "$top" "$NOW" "$recs" > "$tmp" && mv -f "$tmp" "$WO_CACHE" || rm -f "$tmp"
+			cleanup_add "$tmp"
+			printf '%s\n%s\n%s' "$top" "$NOW" "$recs" > "$tmp" && mv -f "$tmp" "$WO_CACHE" && cleanup_del "$tmp" || { rm -f "$tmp"; cleanup_del "$tmp"; }
 		fi
 	fi
 	printf '%s\n%s' "$top" "$recs"
@@ -647,6 +1082,8 @@ wed_json() {
 	for d in "$DBG"/wed[0-9]*; do
 		[ -d "$d" ] || continue
 		id=${d##*/wed}
+		case "$id" in ''|*[!0-9]*) continue ;; esac
+		while [ "${id#0}" != "$id" ] && [ "$id" != 0 ]; do id=${id#0}; done
 		if [ -n "$soc" ]; then ver=$soc
 		elif [ -e "$d/rro" ]; then ver=3
 		elif [ -e "$d/rxinfo" ]; then ver=2
@@ -700,10 +1137,12 @@ fw_bool() {
 }
 
 flow_json() {
-	local fo foh sw=false hw=false
-	fo=$(uci -q get firewall.@defaults[0].flow_offloading)
-	foh=$(uci -q get firewall.@defaults[0].flow_offloading_hw)
-	fw_bool "$fo" && { sw=true; fw_bool "$foh" && hw=true; }
+	local sw=false hw=false
+	uci_ro_flow
+	if fw_bool "$UCI_FO"; then
+		sw=true
+		fw_bool "$UCI_FOH" && hw=true
+	fi
 	printf '"flow_offload":{"software":%s,"hardware":%s}' "$sw" "$hw"
 }
 
@@ -764,7 +1203,7 @@ wan_interface() {
 	status=$(ubus -S call "network.interface.$name" status 2>/dev/null)
 	device=$(jsonfilter -s "$status" -e '@.device' 2>/dev/null)
 	[ -n "$device" ] || device=$(jsonfilter -s "$status" -e '@.l3_device' 2>/dev/null)
-	[ -n "$device" ] || device=$(uci -q get "network.$name.device")
+	[ -n "$device" ] || { uci_ro_read network "$name.device" && device=$UCI_VAL; }
 	wan_ports "$device" "$depth"
 }
 
@@ -806,14 +1245,28 @@ wan_ports() {
 # phy-mode. "internal" is the 2.5G PHY on an MT7987/MT7988 GMAC and a 1G PHY
 # on a switch port.
 port_max_mbps_probe() {
-	# port_max_mbps <sysfs dir> <kind>: the speed in $PM
-	local m mode=
+	# port_max_mbps_probe <sysfs dir> <kind>: speed in $PM, media in $PMEDIA
+	local m mode= out=
+	PMEDIA=unknown
 	if command -v ethtool >/dev/null 2>&1; then
-		m=$(ethtool "${1##*/}" 2>/dev/null | awk '
+		out=$(ethtool "${1##*/}" 2>/dev/null | awk '
+			/^[ \t]*Supported ports:/ { s = $0; sub(/.*Supported ports:[ \t]*/, "", s); sup = tolower(s) }
+			/^[ \t]*Port:/ { s = $0; sub(/.*Port:[ \t]*/, "", s); port = tolower(s) }
 			/Supported link modes:/ { f = 1; sub(/.*:/, "") }
 			f && /:/ { f = 0 }
 			f { for (i = 1; i <= NF; i++) if ($i ~ /^[0-9]+base/) { v = $i + 0; if (v > m) m = v } }
-			END { print m + 0 }')
+			END {
+				media = "unknown"
+				if (port ~ /fibre|fiber|direct attach|(^|[^a-z])(da|sfp)([^a-z]|$)/) media = "sfp"
+				else if (port ~ /twisted pair|(^|[^a-z])tp([^a-z]|$)/) media = "rj45"
+				else if (sup ~ /fibre|fiber|direct attach|(^|[^a-z])(da|sfp)([^a-z]|$)/) media = "sfp"
+				else if (sup ~ /twisted pair|(^|[^a-z])tp([^a-z]|$)/) media = "rj45"
+				print m + 0, media
+			}')
+		read -r m PMEDIA <<EOF
+$out
+EOF
+		case "$PMEDIA" in sfp|rj45|unknown) ;; *) PMEDIA=unknown ;; esac
 		[ "${m:-0}" -gt 0 ] && { PM=$m; return; }
 	fi
 	# A DT string property ends in NUL; read drops it.
@@ -833,27 +1286,30 @@ port_max_mbps_probe() {
 }
 
 port_max_mbps() {
-	local identity stamp cached_id cached_kind cached_speed tmp
+	local identity stamp cached_id cached_kind cached_speed cached_media tmp
 	local cache="$STATE/port-${1##*/}.max"
 	rd "$1/ifindex"; identity=$RD
 	clock_now
 	if [ -n "$NOW" ] && [ -n "$identity" ] && [ -r "$cache" ]; then
-		read -r stamp cached_id cached_kind cached_speed < "$cache"
+		read -r stamp cached_id cached_kind cached_speed cached_media < "$cache"
 		case "$stamp:$cached_speed" in
 			*[!0-9:]*|:*|*:) ;;
-			*) if [ "$cached_id" = "$identity" ] && [ "$cached_kind" = "$2" ] &&
-				[ "$NOW" -ge "$stamp" ] && [ $((NOW - stamp)) -lt 60 ]; then
-				PM=$cached_speed; return
-			fi ;;
+			*) case "$cached_media" in sfp|rj45|unknown)
+				if [ "$cached_id" = "$identity" ] && [ "$cached_kind" = "$2" ] &&
+					[ "$NOW" -ge "$stamp" ] && [ $((NOW - stamp)) -lt 60 ]; then
+					PM=$cached_speed; PMEDIA=$cached_media; return
+				fi ;;
+			esac ;;
 		esac
 	fi
 	port_max_mbps_probe "$1" "$2"
 	# Unknown capabilities are retried, not pinned during device startup.
 	case "$PM" in ''|*[!0-9]*) return ;; esac
 	[ -n "$NOW" ] && [ -n "$identity" ] || return 0
-	tmp=$(mktemp "$cache.XXXXXX") || return 0
-	printf '%s %s %s %s\n' "$NOW" "$identity" "$2" "$PM" > "$tmp" &&
-		mv -f "$tmp" "$cache" || rm -f "$tmp"
+	tmp=$(mktemp "$cache.XXXXXX" 2>/dev/null) || return 0
+	cleanup_add "$tmp"
+	printf '%s %s %s %s %s\n' "$NOW" "$identity" "$2" "$PM" "$PMEDIA" > "$tmp" &&
+		mv -f "$tmp" "$cache" && cleanup_del "$tmp" || { rm -f "$tmp"; cleanup_del "$tmp"; }
 }
 
 port_json() {
@@ -862,6 +1318,7 @@ port_json() {
 	ri "$n/carrier" null; carrier=$RI
 	ri "$n/speed" null; speed=$RI
 	[ "$carrier" = 1 ] || speed=null
+	case "$speed" in ''|0*|*[!0-9]*) speed=null ;; esac
 	js "${n##*/}"; name=$JS
 	js "$5"; conduit=$JS
 	rd "$n/duplex"; js "$RD"; duplex=$JS
@@ -870,7 +1327,7 @@ port_json() {
 		ri "$n/statistics/$k" null
 		stats="$stats,\"$k\":$RI"
 	done
-	PJ="{\"netdev\":\"$name\",\"role\":\"$2\",\"kind\":\"$3\",\"gdm\":${4:-null},\"conduit\":\"$conduit\",\"carrier\":$carrier,\"speed_mbps\":$speed,\"max_mbps\":$PM,\"duplex\":\"$duplex\"$stats}"
+	PJ="{\"netdev\":\"$name\",\"role\":\"$2\",\"kind\":\"$3\",\"gdm\":${4:-null},\"conduit\":\"$conduit\",\"carrier\":$carrier,\"speed_mbps\":$speed,\"max_mbps\":$PM,\"media\":\"$PMEDIA\",\"duplex\":\"$duplex\"$stats}"
 }
 
 get_ports() {
@@ -886,10 +1343,12 @@ get_ports() {
 		rd "$n/iflink"; iflink=$RD
 		if is_dsa_user "$n" "$iflink"; then
 			kind=gsw
-			for c in "$R"/sys/class/net/*; do
-				rd "$c/ifindex"
-				[ "$RD" = "$iflink" ] && { conduit=${c##*/}; gdm_of "$c"; gdm=$GDM; break; }
-			done
+			if [ -n "$iflink" ]; then
+				for c in "$R"/sys/class/net/*; do
+					rd "$c/ifindex"
+					[ "$RD" = "$iflink" ] && { conduit=${c##*/}; gdm_of "$c"; gdm=$GDM; break; }
+				done
+			fi
 		else
 			gdm_of "$n"; gdm=$GDM
 			if [ -z "$gdm" ]; then
@@ -912,7 +1371,7 @@ get_ports() {
 
 # GDM MAC counters from ethtool -S (mtk_ethtool_stats[] in mtk_eth_soc.c).
 get_mac_stats() {
-	local n i gdm out="" first=1
+	local n i gdm raw rc out="" first=1
 	if ! command -v ethtool >/dev/null 2>&1; then
 		printf '{"available":false,"reason":"ethtool_missing","macs":[]}'
 		return
@@ -925,10 +1384,15 @@ get_mac_stats() {
 		first=0
 		# The name is escaped here: awk -v would also read its backslashes.
 		js "$i"
-		out="$out{\"netdev\":\"$JS\",\"gdm\":$gdm$(ethtool -S "$i" 2>/dev/null | awk '
+		raw=$(ethtool -S "$i" 2>/dev/null); rc=$?
+		out="$out{\"netdev\":\"$JS\",\"gdm\":$gdm$(printf '%s\n' "$raw" | awk -v rc="$rc" '
 			BEGIN { split("tx_bytes tx_packets tx_skip tx_collisions rx_bytes rx_packets rx_overflow rx_fcs_errors rx_short_errors rx_long_errors rx_checksum_errors rx_flow_control_packets", k, " ") }
-			{ gsub(/^[ \t]+|:$/, "", $1); key = $1; sub(/:$/, "", key); v[key] = $2 }
-			END { for (j = 1; j in k; j++) printf ",\"%s\":%s", k[j], ((k[j] in v && v[k[j]] ~ /^[0-9]+$/) ? sprintf("%.0f", v[k[j]] + 0) : "null") }')}"
+			rc == 0 { gsub(/^[ \t]+|:$/, "", $1); key = $1; sub(/:$/, "", key); v[key] = $2 }
+			END {
+				for (j = 1; j in k; j++) if (rc == 0 && k[j] in v && v[k[j]] ~ /^[0-9]+$/) got++
+				printf ",\"ok\":%s", (rc == 0 && got > 0 ? "true" : "false")
+				for (j = 1; j in k; j++) printf ",\"%s\":%s", k[j], ((rc == 0 && k[j] in v && v[k[j]] ~ /^[0-9]+$/) ? sprintf("%.0f", v[k[j]] + 0) : "null")
+			}')}"
 	done
 	printf '{"available":true,"macs":[%s]}' "$out"
 }
@@ -944,10 +1408,11 @@ wifi_records() {
 	printf '%s\n%s\n#STATIONS\n%s\n' "$1" "$2" "$3" | awk '
 		function band(f) { return f >= 5925 ? 2 : f >= 5000 ? 1 : 0 }
 		function value(s, k) { return ((s SUBSEP k) in v) ? v[s, k] : "-" }
-		function emit(s, b, key,   ct) {
+		function emit(s, b, key,   ct, sig) {
 			ct = value(s, "ct"); if (ct == "-") ct = value("top", "ct")
+			sig = value(s, "sig"); if (sig == "-") sig = value(s, "sig_cur")
 			print "C", b, iface, key, value(s, "tx"), ct, value(s, "pk"),
-				value(s, "rt"), value(s, "fl"), value(s, "phy"), value(s, "ex"), value(s, "sig")
+				value(s, "rt"), value(s, "fl"), value(s, "phy"), value(s, "ex"), sig
 		}
 		function flush_station(   l) {
 			if (mac == "") return
@@ -1003,31 +1468,47 @@ wifi_records() {
 		$1 == "connected" && $2 == "time:" && $3 ~ /^[0-9]+$/ { v[section, "ct"] = $3 }
 		$1 == "tx" && $2 == "bitrate:" && $3 + 0 > 0 { v[section, "phy"] = $3 + 0 }
 		$1 == "expected" && $2 == "throughput:" && $3 + 0 > 0 { v[section, "ex"] = $3 + 0 }
+		$1 == "signal:" && $2 ~ /^-[0-9]+$/ { v[section, "sig_cur"] = $2 }
 		$1 == "signal" && $2 == "avg:" && $3 ~ /^-[0-9]+$/ { v[section, "sig"] = $3 }
 		END { flush_station() }
 	'
 }
 
 get_wifi_stats() {
-	local iface records d now end rest late rates snap list info prev f try body old partial=0 hw cur=""
+	local iface records d now end rest late rates snap list raw_dev info prev f try body old partial=0 hw=false cur=""
 	local rate0 rate1 rate2 tag previous_time previous_end
-	hw=$([ -n "$(ls "$R"/sys/class/ieee80211 2>/dev/null)" ] && echo true || echo false)
+	for d in "$R"/sys/class/ieee80211/*; do
+		[ -e "$d" ] && { hw=true; break; }
+	done
 	if ! command -v iw >/dev/null 2>&1; then
-		printf '{"available":false,"has_wifi":%s,"bands":[]}' "$hw"
+		if [ "$hw" = true ]; then
+			printf '{"available":false,"reason":"iw_missing","has_wifi":true,"bands":[]}'
+		else
+			printf '{"available":true,"has_wifi":false,"complete":true,"stations":0,"bands":[]}'
+		fi
 		return
 	fi
-	read -r now rest < "$R/proc/uptime" 2>/dev/null
-	list=$(iw dev 2>/dev/null) ||
+	read -r now rest 2>/dev/null < "$R/proc/uptime"
+	raw_dev=$(iw dev 2>/dev/null) ||
 		{ printf '{"available":false,"has_wifi":%s,"error":"iw dev failed","bands":[]}' "$hw"; return; }
+	case "$raw_dev" in *[![:space:]]*) hw=true ;; esac
+	if [ "$hw" = false ]; then
+		printf '{"available":true,"has_wifi":false,"complete":true,"stations":0,"bands":[]}'
+		return
+	fi
 	# "Interface" and "type" are the first words of their lines; the SSID
 	# line in between may contain the same words. AP/VLAN carries the WDS
 	# stations of an AP.
-	list=$(printf '%s\n' "$list" | awk '
+	list=$(printf '%s\n' "$raw_dev" | awk '
 		$1 == "Interface" { i = $2; next }
 		$1 == "type" {
 			if (($2 == "AP" || $2 == "AP/VLAN") && i != "" && !(i in seen)) { seen[i]; print i }
 			i = ""
 		}') || { printf '{"available":false,"has_wifi":%s,"error":"cannot parse Wi-Fi interfaces","bands":[]}' "$hw"; return; }
+	if [ -z "$list" ]; then
+		printf '{"available":true,"has_wifi":true,"complete":true,"stations":0,"bands":[]}'
+		return
+	fi
 	# Valid interface names can contain glob characters and backslashes.
 	while IFS= read -r iface; do
 		[ -n "$iface" ] || continue
@@ -1042,7 +1523,7 @@ $list
 EOF
 	case "$NL$cur$NL" in *"${NL}P${NL}"*) partial=1 ;; esac
 
-	read -r end rest < "$R/proc/uptime" 2>/dev/null
+	read -r end rest 2>/dev/null < "$R/proc/uptime"
 	# The sample (time, rates, per-client TX bytes) is shared by every open
 	# page. A rate adds up the growth of clients present in both samples, so
 	# clients leaving or joining do not swing it. A sample taken less than
@@ -1129,7 +1610,7 @@ $rates
 EOF
 	# A sample read too slowly is reported like a partial one.
 	[ "$late" = 1 ] && partial=1
-	printf '%s\n' "$cur" | awk -v partial="$partial" -v r0="${rate0:-0}" -v r1="${rate1:-0}" -v r2="${rate2:-0}" "$JESC_AWK"'
+	printf '%s\n' "$cur" | awk -v partial="$partial" -v has_wifi="$hw" -v r0="${rate0:-0}" -v r1="${rate1:-0}" -v r2="${rate2:-0}" "$JESC_AWK"'
 		$1 == "I" {
 			b = $2; k = b " " $3
 			if (!(k in interfaces)) { interfaces[k] = 1; ifs[b] = ifs[b] (ifs[b] == "" ? "" : " ") $3 }
@@ -1141,17 +1622,25 @@ EOF
 			pk[b] += $7; rt[b] += $8; fl[b] += $9
 			if ($10 + 0 > 0) { phy[b] += $10; pn[b]++ }
 			if ($11 + 0 > 0) { ex[b] += $11; en[b]++ }
-			if ($12 != "-") { ss[b] += $12; sn[b]++; if (sn[b] == 1 || $12 + 0 < mn[b]) mn[b] = $12 + 0 }
+			if ($10 + 0 > 0 && $11 + 0 > 0) { pphy[b] += $10; pex[b] += $11 }
+			if ($12 ~ /^-[0-9]+$/) { ss[b] += $12; sn[b]++; if (sn[b] == 1 || $12 + 0 < mn[b]) mn[b] = $12 + 0 }
 		}
 		END {
 			for (k in clients) total++
-			printf "{\"available\":true,\"has_wifi\":true,\"complete\":%s,\"stations\":%d,\"bands\":[", (partial ? "false" : "true"), total
+			printf "{\"available\":true,\"has_wifi\":%s,\"complete\":%s,\"stations\":%d,\"bands\":[", has_wifi, (partial ? "false" : "true"), total
 			for (b = 0; b < 3; b++) {
 				if (!(b in ifs)) continue
 				ap = pn[b] ? phy[b] / pn[b] : 0; ae = en[b] ? ex[b] / en[b] : 0
-				printf "%s{\"band\":%d,\"interfaces\":\"%s\",\"stations\":%d,\"tx_packets\":%.0f,\"tx_retries\":%.0f,\"tx_failed\":%.0f,\"avg_phy_rate\":%.1f,\"avg_exp_throughput\":%.1f,\"airtime_efficiency\":%d,\"avg_signal\":%d,\"min_signal\":%d,\"tx_mbps\":%s}",
+				if (pphy[b] > 0) {
+					ef = int(pex[b] / pphy[b] * 100 + 0.5)
+					if (ef < 0) ef = 0; else if (ef > 100) ef = 100
+					eff = sprintf("%d", ef)
+				} else eff = "null"
+				asig = sn[b] ? sprintf("%d", int(ss[b] / sn[b])) : "null"
+				msig = sn[b] ? sprintf("%d", mn[b]) : "null"
+				printf "%s{\"band\":%d,\"interfaces\":\"%s\",\"stations\":%d,\"tx_packets\":%.0f,\"tx_retries\":%.0f,\"tx_failed\":%.0f,\"avg_phy_rate\":%.1f,\"avg_exp_throughput\":%.1f,\"airtime_efficiency\":%s,\"avg_signal\":%s,\"min_signal\":%s,\"tx_mbps\":%s}",
 					(n++ ? "," : ""), b, jesc(ifs[b]), st[b], pk[b], rt[b], fl[b], ap, ae,
-					(ap > 0 ? int(ae / ap * 100) : 0), (sn[b] ? int(ss[b] / sn[b]) : 0), mn[b], (b == 0 ? r0 : b == 1 ? r1 : r2)
+					eff, asig, msig, (b == 0 ? r0 : b == 1 ? r1 : r2)
 			}
 			printf "]}"
 		}'
@@ -1181,21 +1670,326 @@ locked() {
 	} 4> "$STATE/settings.lock" || printf '{"error":"cannot lock the settings"}'
 }
 
+# Check whether procd has a firewall config.change reload trigger registered.
+rpcd_has_fw_trigger() {
+	local out tr
+	out=$(ubus -S call service list '{"name":"firewall","verbose":true}' 2>/dev/null 4>&-) || return 2
+	tr=$(jsonfilter -s "$out" -e '@.firewall.triggers[*]' 2>/dev/null)
+	if [ -n "$tr" ]; then
+		while IFS= read -r out; do
+			case "$out" in
+				*'"config.change"'*'"firewall"'*) return 0 ;;
+			esac
+		done <<EOF
+$tr
+EOF
+		return 1
+	fi
+	case "$out" in
+		*'"triggers":'*'"config.change"'*'"firewall"'*) return 0 ;;
+	esac
+	return 1
+}
+
+# A missing ft in a readable fw4 table is a valid disabled state. An nft
+# error (including an unreadable/missing fw4 table) cannot verify either state.
+nft_offload_matches() {
+	local out
+	out=$(nft -t list table inet fw4 2>/dev/null 4>&- 7<&-) || return 1
+	printf '%s\n' "$out" | awk -v want="$1" '
+		{ sub(/#.*/, "") }
+		$1 == "table" && $2 == "inet" && $3 == "fw4" { table_seen=1 }
+		$1 == "flowtable" && $2 == "ft" && $3 == "{" { ft=1; next }
+		ft && $1 == "}" { ft=0 }
+		ft && $1 == "flags" {
+			for (i=2; i<=NF; i++) {
+				n=split($i, words, /[,;]/)
+				for (j=1; j<=n; j++) if (words[j] == "offload") hw=1
+			}
+		}
+		END { exit !(table_seen && (hw+0) == want) }'
+}
+
+# Wait briefly for /var/run/fw4.lock release (shared flock on FD 8, immediately closed).
+fw4_wait_lock() {
+	local wait_sec="$1" lrc
+	[ -e "$FW4_LOCK" ] || return 0
+	if { command exec 8< "$FW4_LOCK"; } 2>/dev/null; then
+		flock_wait s 8 "$wait_sec"
+		lrc=$?
+		exec 8<&-
+		return "$lrc"
+	fi
+	return 1
+}
+
+# Wait for procd-triggered fw4 reload to finish and verify live state + nft.
+# Caller holds FD 7 on pre-commit $FW4_STATE iff $had_state=1.
+fw4_wait_reload() {
+	local en="$1" had_state="$2" wait_max="${3:-$FW_RELOAD_WAIT}" i=0 rotated=0 rem
+	while :; do
+		if [ "$had_state" = 1 ]; then
+			if [ ! -e /proc/self/fd/7 ] || [ ! /proc/self/fd/7 -ef "$FW4_STATE" ]; then
+				rotated=1
+				break
+			fi
+		else
+			if [ -f "$FW4_STATE" ]; then
+				rotated=1
+				break
+			fi
+		fi
+		[ "$i" -lt "$wait_max" ] || break
+		i=$((i + 1))
+		sleep 1
+	done
+	[ "$rotated" = 1 ] || return 1
+	rem=$((wait_max - i))
+	[ "$rem" -ge 1 ] || rem=1
+	fw4_wait_lock "$rem" || return 1
+	[ -f "$FW4_STATE" ] || return 1
+	nft_offload_matches "$en"
+}
+
+# Pin the pre-commit inode until the asynchronous reload has replaced it.
+# A missing state file is handled by waiting for its creation instead.
+fw_prepare_reload() {
+	exec 7<&-
+	had_state=0
+	if [ "$trigger" = 1 ] && [ "$fw4" = 1 ] && [ -e "$FW4_STATE" ]; then
+		{ command exec 7< "$FW4_STATE"; } 2>/dev/null || return 1
+		had_state=1
+	fi
+	return 0
+}
+
+fw_finish_reload() {
+	if [ "$trigger" = 1 ] && [ "$fw4" = 1 ]; then
+		fw4_wait_reload "$1" "$had_state" "$2"
+	else
+		"$FW_INIT" reload >/dev/null 2>&1 4>&- 7<&- || return 1
+		[ "$fw4" = 0 ] || nft_offload_matches "$1"
+	fi
+}
+
+# apply/confirm/rollback operate on the private SID's transaction.
+# get/set/commit additionally require the firewall package name.
+flow_uci() {
+	local args="$2"
+	case "$1" in
+		get|set|commit) args='"config":"firewall"'${args:+,$args} ;;
+	esac
+	ubus -S call uci "$1" "{\"ubus_rpc_session\":\"$sid\"${args:+,$args}}" 2>/dev/null 4>&- 7<&-
+}
+
+flow_read_section() {
+	local out
+	out=$(flow_uci get '"section":"@defaults[0]"') || return 1
+	section=$(jsonfilter -s "$out" -e '@.values[".name"]' 2>/dev/null) || return 1
+	case "$section" in ''|*[!A-Za-z0-9_]*) return 1 ;; esac
+	[ "$(jsonfilter -s "$out" -e '@.values[".type"]' 2>/dev/null)" = defaults ] || return 1
+	RPCD_HAD_FO=0; RPCD_HAD_FOH=0
+	if RPCD_FO=$(jsonfilter -s "$out" -e '@.values.flow_offloading' 2>/dev/null); then RPCD_HAD_FO=1; fi
+	if RPCD_FOH=$(jsonfilter -s "$out" -e '@.values.flow_offloading_hw' 2>/dev/null); then RPCD_HAD_FOH=1; fi
+}
+
+# Read back disk, independent of any delta still visible to the writer.
+flow_disk_matches() {
+	uci_ro_flow || return 1
+	[ "$UCI_HAD_FOH" = 1 ] && [ "$UCI_FOH" = "$en" ] || return 2
+	[ "$en" = 0 ] || { [ "$UCI_HAD_FO" = 1 ] && [ "$UCI_FO" = 1 ]; } || return 2
+	return 0
+}
+
+# rpcd owns the snapshot and keeps other sessions' commit calls out until
+# rollback completes. Read the committed file: our session regains its delta.
+flow_rollback() {
+	local rc old_en=0 pinned=1 restored=1 live_ok=0 wait_cap="$FW_RELOAD_WAIT"
+	fw_prepare_reload || pinned=0
+	flow_uci rollback >/dev/null
+	rc=$?
+	CLEANUP_FLOW_APPLY=
+
+	# NO_DATA (5) can mean the daemon already rolled back on timeout. Verify
+	# disk matches the pre-change values and rc is 0 or 5 before waiting.
+	uci_ro_flow || return 1
+	[ "$UCI_HAD_FO" = "$had_fo" ] && [ "$UCI_FO" = "$prev_fo" ] &&
+		[ "$UCI_HAD_FOH" = "$had_foh" ] && [ "$UCI_FOH" = "$prev_foh" ] || restored=0
+	[ "$restored" = 1 ] && { [ "$rc" = 0 ] || [ "$rc" = 5 ]; } || return 1
+	if fw_bool "$UCI_FO" && fw_bool "$UCI_FOH"; then old_en=1; fi
+
+	if [ "$trigger" = 1 ] && [ "$rc" = 5 ]; then
+		# The timeout event may have completed before we pinned the inode.
+		if fw4_wait_lock "$FW_RELOAD_WAIT" && nft_offload_matches "$old_en"; then
+			live_ok=1
+		fi
+		[ "$wait_cap" -le 3 ] || wait_cap=3
+	fi
+	if [ "$live_ok" = 0 ] && [ "$pinned" = 1 ] && fw_finish_reload "$old_en" "$wait_cap"; then
+		live_ok=1
+	fi
+	[ "$live_ok" = 1 ] || return 3
+}
+
+set_flow_offload_rpcd_body() {
+	local en="$1" out sid section selector vals= trigger=0 fw4=0 had_state=0 rc failure
+	local had_fo prev_fo had_foh prev_foh
+
+	out=$(ubus -S call session create '{"timeout":120}' 2>/dev/null 4>&-) || {
+		printf '{"error":"cannot save the firewall settings"}'; return
+	}
+	sid=$(jsonfilter -s "$out" -e '@.ubus_rpc_session' 2>/dev/null)
+	case "$sid" in ''|*[!a-f0-9]*) printf '{"error":"cannot save the firewall settings"}'; return ;; esac
+	[ "${#sid}" = 32 ] && [ "$sid" != 00000000000000000000000000000000 ] || {
+		printf '{"error":"cannot save the firewall settings"}'; return
+	}
+	CLEANUP_RPCD_SID=$sid
+	# Wrapper and signal traps destroy the session and discard its private stage.
+	if ! ubus -S call session grant "{\"ubus_rpc_session\":\"$sid\",\"scope\":\"uci\",\"objects\":[[\"firewall\",\"read\"],[\"firewall\",\"write\"]]}" >/dev/null 2>&1 4>&- ||
+		! flow_read_section; then
+		printf '{"error":"cannot save the firewall settings"}'; return
+	fi
+	selector="\"section\":\"$section\""
+	had_fo=$RPCD_HAD_FO; prev_fo=$RPCD_FO
+	had_foh=$RPCD_HAD_FOH; prev_foh=$RPCD_FOH
+	if [ "$en" = 1 ] && [ "$prev_fo" != 1 ]; then
+		vals='"flow_offloading":"1"'
+	fi
+	if [ "$prev_foh" != "$en" ]; then
+		vals="${vals:+$vals,}\"flow_offloading_hw\":\"$en\""
+	fi
+	command -v fw4 >/dev/null 2>&1 && fw4=1
+	if [ -z "$vals" ] && [ "$fw4" = 1 ] && nft_offload_matches "$en" && flow_disk_matches; then
+		printf '{"result":"ok","enabled":%s}' "$en"; return
+	fi
+	if [ "$fw4" = 1 ]; then
+		rpcd_has_fw_trigger
+		case "$?" in
+			0) trigger=1 ;;
+			2) printf '{"error":"cannot determine the firewall reload trigger"}'; return ;;
+		esac
+	fi
+	if [ -n "$vals" ] && ! flow_uci set "$selector,\"values\":{$vals}" >/dev/null; then
+		printf '{"error":"cannot save the firewall settings"}'; return
+	fi
+	fw_prepare_reload || { printf '{"error":"cannot save the firewall settings"}'; return; }
+	if [ -z "$vals" ]; then
+		# No private delta. A package commit emits the reload event while
+		# respecting any pending apply. There is no write to compensate.
+		flow_uci commit >/dev/null
+		rc=$?
+	else
+		CLEANUP_FLOW_MANUAL=$((1 - trigger))
+		CLEANUP_FLOW_APPLY=1
+		# Keep the daemon timer shorter than the session TTL (120 seconds).
+		flow_uci apply '"rollback":true,"timeout":60' >/dev/null
+		rc=$?
+	fi
+	case "$rc" in
+		0) ;;
+		6) CLEANUP_FLOW_APPLY=
+			printf '{"error":"firewall settings are locked by another pending apply"}'; return ;;
+		*) # A lost reply may follow a successful apply. Cleanup can only
+		   # abort our SID, and can never release someone else's transaction.
+			printf '{"error":"cannot save the firewall settings"}'; return ;;
+	esac
+
+	if ! flow_disk_matches; then
+		failure=save
+	elif ! fw_finish_reload "$en"; then
+		failure=reload
+	elif ! flow_disk_matches; then
+		failure=save
+	elif [ -n "$vals" ] && ! flow_uci confirm >/dev/null; then
+		failure=confirm
+	else
+		CLEANUP_FLOW_APPLY=
+		printf '{"result":"ok","enabled":%s}' "$en"; return
+	fi
+
+	if [ -z "$vals" ]; then
+		case "$failure" in
+			reload) printf '{"error":"could not apply the saved flow offload setting"}' ;;
+			*) printf '{"error":"cannot verify the committed firewall settings"}' ;;
+		esac
+		return
+	fi
+
+	flow_rollback
+	case "$?" in
+		0) case "$failure" in
+			reload) printf '{"error":"firewall reload failed; flow offload setting reverted"}' ;;
+			confirm) printf '{"error":"firewall transaction confirmation failed; previous settings restored"}' ;;
+			*) printf '{"error":"firewall settings verification failed; previous settings restored"}' ;;
+		esac ;;
+		3) printf '{"error":"firewall settings restored; could not verify firewall reload"}' ;;
+		*) printf '{"error":"could not verify firewall transaction rollback"}' ;;
+	esac
+}
+
+set_flow_offload_rpcd() {
+	set_flow_offload_rpcd_body "$1"
+	exec 7<&-
+	rpcd_session_destroy
+}
+
+set_flow_offload_cas() {
+	local en="$1" had_fo=0 had_foh=0 prev_fo= prev_foh= changed_fo=0 changed_foh=0
+	local op_fo=keep rb_fo=keep rb_foh=keep rb_rc
+	local UCI_SNAP_FLOW=1 UCI_FO= UCI_HAD_FO=0 UCI_FOH= UCI_HAD_FOH=0
+	local UCI_EXPECT_FLOW=0 UCI_EXP_CHK_FO=0 UCI_EXP_FO=1 UCI_EXP_FOH="$en"
+	# Hardware offload rides on the software flowtable, so enabling it turns
+	# both on; disabling only drops the hardware part. UCI_SNAP_FLOW=1 records
+	# pre-change committed values inside the winning CAS attempt.
+	[ "$en" = 0 ] || op_fo='set:@defaults[0].flow_offloading=1'
+	if ! uci_pkg_apply firewall "$op_fo" "set:@defaults[0].flow_offloading_hw=$en"; then
+		printf '{"error":"cannot save the firewall settings"}'
+		return
+	fi
+	had_fo=$UCI_HAD_FO; prev_fo=$UCI_FO
+	had_foh=$UCI_HAD_FOH; prev_foh=$UCI_FOH
+	[ "$en" = 1 ] && { [ "$had_fo" != 1 ] || [ "$prev_fo" != 1 ]; } && changed_fo=1
+	{ [ "$had_foh" != 1 ] || [ "$prev_foh" != "$en" ]; } && changed_foh=1
+	# fw4 rebuilds its flowtable on reload; only a finished reload applies it.
+	# Nothing it starts may inherit the settings lock.
+	if ! "$FW_INIT" reload >/dev/null 2>&1 4>&-; then
+		UCI_SNAP_FLOW=0
+		UCI_EXPECT_FLOW=1
+		UCI_EXP_CHK_FO=$changed_fo
+		if [ "$changed_fo" = 1 ]; then
+			if [ "$had_fo" = 1 ]; then rb_fo="set:@defaults[0].flow_offloading=$prev_fo"
+			else rb_fo='del:@defaults[0].flow_offloading'
+			fi
+		fi
+		if [ "$changed_foh" = 1 ]; then
+			if [ "$had_foh" = 1 ]; then rb_foh="set:@defaults[0].flow_offloading_hw=$prev_foh"
+			else rb_foh='del:@defaults[0].flow_offloading_hw'
+			fi
+		fi
+		uci_pkg_apply firewall "$rb_fo" "$rb_foh"
+		rb_rc=$?
+		if [ "$rb_rc" = 0 ]; then
+			printf '{"error":"firewall reload failed; flow offload setting reverted"}'
+		elif [ "$rb_rc" = 2 ]; then
+			printf '{"error":"firewall reload failed; flow offload setting was modified concurrently and not reverted"}'
+		else
+			printf '{"error":"firewall reload failed and reverting the setting also failed"}'
+		fi
+		return
+	fi
+	printf '{"result":"ok","enabled":%s}' "$en"
+}
+
 set_flow_offload() {
 	local en
 	en=$(json_input "$1" enabled)
 	case "$en" in 0|1) ;; *) printf '{"error":"enabled must be 0 or 1"}'; return ;; esac
-	# Hardware offload rides on the software flowtable, so enabling it turns
-	# both on; disabling only drops the hardware part.
-	{ [ "$en" = 0 ] || uci -q set firewall.@defaults[0].flow_offloading=1; } &&
-		uci -q set firewall.@defaults[0].flow_offloading_hw="$en" &&
-		uci -q commit firewall ||
-		{ printf '{"error":"cannot save the firewall settings"}'; return; }
-	# fw4 rebuilds its flowtable on reload; only a finished reload applies it.
-	# Nothing it starts may inherit the settings lock.
-	"$R/etc/init.d/firewall" reload >/dev/null 2>&1 4>&- ||
-		{ printf '{"error":"saved, but reloading the firewall failed"}'; return; }
-	printf '{"result":"ok","enabled":%s}' "$en"
+	if [ -z "$R" ]; then
+		set_flow_offload_rpcd "$en"
+	else
+		# The offline test root has no rpcd serving its UCI directory.
+		set_flow_offload_cas "$en"
+	fi
 }
 
 # Rewrite one module configuration file. Autoload entries must keep the
@@ -1271,11 +2065,13 @@ wed_stage() {
 		i=$((i + 1)); step="$WED_TXN/$i"
 		mkdir "$step" || return 1
 		printf '%s\n' "$target" > "$step/path" || return 1
-		tmp=$(mktemp "${target%/*}/.mtkw-new.XXXXXX") || return 1
-		printf '%s\n' "$tmp" > "$step/new" || { rm -f "$tmp"; return 1; }
+		tmp=$(mktemp "${target%/*}/.mtkw-new.XXXXXX" 2>/dev/null) || return 1
+		cleanup_add "$tmp"
+		printf '%s\n' "$tmp" > "$step/new" && cleanup_del "$tmp" || { rm -f "$tmp"; cleanup_del "$tmp"; return 1; }
 		if [ -f "$target" ]; then
-			old=$(mktemp "${target%/*}/.mtkw-old.XXXXXX") || return 1
-			printf '%s\n' "$old" > "$step/old" || { rm -f "$old"; return 1; }
+			old=$(mktemp "${target%/*}/.mtkw-old.XXXXXX" 2>/dev/null) || return 1
+			cleanup_add "$old"
+			printf '%s\n' "$old" > "$step/old" && cleanup_del "$old" || { rm -f "$old"; cleanup_del "$old"; return 1; }
 			cp -p "$target" "$old" && cp -p "$target" "$tmp" || return 1
 			wed_rewrite "$mod" "$val" "$conf" "$target" > "$tmp" || return 1
 		else
@@ -1292,6 +2088,8 @@ wed_cleanup() {
 		for file in new old; do rd "$step/$file"; [ -z "$RD" ] || rm -f "$RD"; done
 	done
 	rm -rf "$WED_TXN"
+	[ "$CLEANUP_WED_TXN" = "$WED_TXN" ] && CLEANUP_WED_TXN=
+	return 0
 }
 
 set_wed_enable() {
@@ -1301,8 +2099,9 @@ set_wed_enable() {
 	case "$en" in 0|1) ;; *) printf '{"error":"enabled must be 0 or 1"}'; return ;; esac
 	[ "$en" = 1 ] && val=Y
 	mod=$(wed_module)
-	WED_TXN=$(mktemp -d "$STATE/wed-save.XXXXXX") ||
+	WED_TXN=$(mktemp -d "$STATE/wed-save.XXXXXX" 2>/dev/null) ||
 		{ printf '{"error":"cannot prepare the WED settings"}'; return; }
+	CLEANUP_WED_TXN=$WED_TXN
 	if ! wed_stage "$mod" "$val"; then
 		wed_cleanup
 		printf '{"error":"%s"}' "$WED_STAGE_ERROR"
@@ -1326,6 +2125,7 @@ set_wed_enable() {
 		done
 		if [ "$restore_failed" = 1 ]; then
 			# Keep the originals and path mappings if a restore also failed.
+			CLEANUP_WED_TXN=
 			js "$WED_TXN"
 			printf '{"error":"cannot save or restore the WED settings; recovery files: %s"}' "$JS"
 		else
@@ -1338,27 +2138,97 @@ set_wed_enable() {
 	printf '{"result":"ok","enabled":%s,"module":"%s","reboot_required":true}' "$en" "$mod"
 }
 
+cpu_restore() {
+	local txn="$1" applied="$2" idx step p og of
+	CPU_RESTORE_FAILED=0
+	for idx in $applied; do
+		step="$txn/$idx"
+		rd "$step/path"; p=$RD
+		rd "$step/gov"; og=$RD
+		rd "$step/freq"; of=$RD
+		if [ -n "$og" ]; then
+			rd "$p/scaling_governor"
+			[ "$RD" = "$og" ] || printf '%s\n' "$og" 2>/dev/null > "$p/scaling_governor" || CPU_RESTORE_FAILED=1
+		fi
+		if [ -n "$of" ]; then
+			rd "$p/scaling_max_freq"
+			[ "$RD" = "$of" ] || printf '%s\n' "$of" 2>/dev/null > "$p/scaling_max_freq" || CPU_RESTORE_FAILED=1
+		fi
+	done
+}
+
 set_cpu_settings() {
-	local gov freq p ok_gov=0 ok_freq=0 f failed=0
+	local gov freq p ok_gov=0 ok_freq=0 p_gov p_freq f failed=0 txn i=0 step applied= CPU_RESTORE_FAILED=0
 	gov=$(json_input "$1" governor)
 	freq=$(json_input "$1" freq)
 	p=$(cpu_policy)
 	[ -n "$p" ] || { printf '{"error":"cpufreq unavailable"}'; return; }
-	for f in $(read_first "$p/scaling_available_governors"); do [ "$f" = "$gov" ] && ok_gov=1; done
-	for f in $(read_first "$p/scaling_available_frequencies"); do [ "$f" = "$freq" ] && ok_freq=1; done
-	[ $ok_gov = 1 ] || { printf '{"error":"unsupported governor"}'; return; }
-	[ $ok_freq = 1 ] || { printf '{"error":"unsupported frequency"}'; return; }
 	for p in "$R"/sys/devices/system/cpu/cpufreq/policy*; do
 		[ -d "$p" ] || continue
-		echo "$gov" 2>/dev/null > "$p/scaling_governor" || failed=1
-		echo "$freq" 2>/dev/null > "$p/scaling_max_freq" || failed=1
+		for f in $(read_first "$p/scaling_available_governors"); do [ "$f" = "$gov" ] && { ok_gov=1; break; }; done
+		for f in $(read_first "$p/scaling_available_frequencies"); do [ "$f" = "$freq" ] && { ok_freq=1; break; }; done
 	done
-	[ $failed = 0 ] || { printf '{"error":"cannot apply the CPU settings"}'; return; }
-	uci -q set mtk_wed.cpu=cpu &&
-		uci -q set mtk_wed.cpu.governor="$gov" &&
-		uci -q set mtk_wed.cpu.max_freq="$freq" &&
-		uci -q commit mtk_wed ||
-		{ printf '{"error":"applied, but saving the CPU settings failed"}'; return; }
+	[ "$ok_gov" = 1 ] || { printf '{"error":"unsupported governor"}'; return; }
+	[ "$ok_freq" = 1 ] || { printf '{"error":"unsupported frequency"}'; return; }
+	[ -d "$STATE" ] || mkdir -p -m 0700 "$STATE" 2>/dev/null
+	txn=$(mktemp -d "$STATE/cpu-save.XXXXXX" 2>/dev/null) ||
+		{ printf '{"error":"cannot apply the CPU settings"}'; return; }
+	cleanup_add "$txn"
+	# Validate per policy (matching init.d/mtk-wed) and snapshot every touched
+	# policy before mutating sysfs so partial failures roll back atomically.
+	for p in "$R"/sys/devices/system/cpu/cpufreq/policy*; do
+		[ -d "$p" ] || continue
+		p_gov=0; p_freq=0
+		for f in $(read_first "$p/scaling_available_governors"); do [ "$f" = "$gov" ] && { p_gov=1; break; }; done
+		for f in $(read_first "$p/scaling_available_frequencies"); do [ "$f" = "$freq" ] && { p_freq=1; break; }; done
+		[ "$p_gov" = 1 ] || [ "$p_freq" = 1 ] || continue
+		i=$((i + 1)); step="$txn/$i"
+		mkdir "$step" && printf '%s\n' "$p" > "$step/path" &&
+			printf '%s\n' "$p_gov" > "$step/do_gov" &&
+			printf '%s\n' "$p_freq" > "$step/do_freq" ||
+			{ rm -rf "$txn"; cleanup_del "$txn"; printf '{"error":"cannot apply the CPU settings"}'; return; }
+		if [ "$p_gov" = 1 ]; then
+			rd "$p/scaling_governor"; printf '%s\n' "$RD" > "$step/gov" || { rm -rf "$txn"; cleanup_del "$txn"; printf '{"error":"cannot apply the CPU settings"}'; return; }
+		fi
+		if [ "$p_freq" = 1 ]; then
+			rd "$p/scaling_max_freq"; printf '%s\n' "$RD" > "$step/freq" || { rm -rf "$txn"; cleanup_del "$txn"; printf '{"error":"cannot apply the CPU settings"}'; return; }
+		fi
+	done
+	[ "$i" -gt 0 ] || { rm -rf "$txn"; cleanup_del "$txn"; printf '{"error":"cannot apply the CPU settings"}'; return; }
+	for step in "$txn"/[0-9]*; do
+		[ -d "$step" ] || continue
+		rd "$step/path"; p=$RD
+		rd "$step/do_gov"; p_gov=$RD
+		rd "$step/do_freq"; p_freq=$RD
+		applied="${step##*/} $applied"
+		if [ "$p_gov" = 1 ]; then
+			if ! printf '%s\n' "$gov" 2>/dev/null > "$p/scaling_governor"; then failed=1; break; fi
+		fi
+		if [ "$p_freq" = 1 ]; then
+			if ! printf '%s\n' "$freq" 2>/dev/null > "$p/scaling_max_freq"; then failed=1; break; fi
+		fi
+	done
+	if [ "$failed" = 1 ]; then
+		cpu_restore "$txn" "$applied"
+		rm -rf "$txn"; cleanup_del "$txn"
+		if [ "$CPU_RESTORE_FAILED" = 1 ]; then
+			printf '{"error":"saving the CPU settings failed and restoring previous settings also failed"}'
+		else
+			printf '{"error":"cannot apply the CPU settings"}'
+		fi
+		return
+	fi
+	if ! uci_pkg_apply mtk_wed 'set:cpu=cpu' "set:cpu.governor=$gov" "set:cpu.max_freq=$freq"; then
+		cpu_restore "$txn" "$applied"
+		rm -rf "$txn"; cleanup_del "$txn"
+		if [ "$CPU_RESTORE_FAILED" = 1 ]; then
+			printf '{"error":"saving the CPU settings failed and restoring previous settings also failed"}'
+		else
+			printf '{"error":"cannot save the CPU settings; previous settings restored"}'
+		fi
+		return
+	fi
+	rm -rf "$txn"; cleanup_del "$txn"
 	printf '{"result":"ok","governor":"%s","freq":%s}' "$gov" "$freq"
 }
 

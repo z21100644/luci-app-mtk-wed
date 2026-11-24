@@ -13,14 +13,15 @@ apply_cpu() {
 		if [ -n "$gov" ]; then
 			ok=0
 			for f in $(cat "$p/scaling_available_governors" 2>/dev/null); do [ "$f" = "$gov" ] && ok=1; done
-			[ $ok = 1 ] && echo "$gov" > "$p/scaling_governor"
+			if [ "$ok" = 1 ]; then echo "$gov" 2>/dev/null > "$p/scaling_governor" || :; fi
 		fi
 		if [ -n "$freq" ]; then
 			ok=0
 			for f in $(cat "$p/scaling_available_frequencies" 2>/dev/null); do [ "$f" = "$freq" ] && ok=1; done
-			[ $ok = 1 ] && echo "$freq" > "$p/scaling_max_freq"
+			if [ "$ok" = 1 ]; then echo "$freq" 2>/dev/null > "$p/scaling_max_freq" || :; fi
 		fi
 	done
+	return 0
 }
 
 start() {

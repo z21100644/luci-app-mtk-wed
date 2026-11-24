@@ -2,72 +2,197 @@
 'require baseclass';
 
 /*
- * Copied from luci-app-airoha (https://github.com/naoki66/luci-app-airoha),
- * luci-app-airoha-npu, licensed under Apache-2.0.
- * Modified for luci-app-mtk-wed: renamed the page scope, style id and
- * module path so both packages can be installed side by side.
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * V2 Spatial Hardware Studio design tokens for luci-app-mtk-wed.
+ *
+ * Scoped strictly under `.mtkw-page` (`--mtkw-*`) so styles never leak into
+ * host LuCI themes (Argon, Bootstrap, Aurora, Material, Glass).
+ *
+ * Theme safety notes:
+ * - `--background-color` is deliberately NOT referenced: Argon dark.css never
+ *   re-assigns it (it stays #f4f5f7 in dark mode), which would paint light boxes
+ *   on a #1e1e1e dark canvas.
+ * - `tokens` provides the Light (default — Spatial Alabaster Studio) palette.
+ * - `dark` provides the Luminous Midnight-Slate Dark palette, calibrated to
+ *   elevate cleanly above Argon Dark (#1e1e1e), Bootstrap Dark (#18181b), and
+ *   Aurora Dark (#0b1018) with WCAG AA/AAA text contrast.
+ * - `cssPath` points to the static external stylesheet (`mtk-wed.css`) loaded
+ *   via `<link id="mtkw-ds-css" rel="stylesheet">` for strict CSP compliance
+ *   (`style-src 'self'` without `'unsafe-inline'`).
+ * - `tokens` and `dark` mirror the Light & Dark token definitions as metadata
+ *   for palette inspection and backwards compatibility; they are never
+ *   injected via `<style>` elements.
  */
 
-/* ---------------------------------------------------------------------------
- * Shared design tokens for the unified Airoha SoC/NPU view.
- *
- * This module mirrors luci-app-mesh-conf/.../view/meshconf/ds-tokens.js
- * on purpose: pages that ship in the same product read as one design language,
- * so the same token names, the same em-based scale and the same theme-variable
- * mapping are reused here instead of inventing a second vocabulary.
- *
- * `tokens` is the body of the `.mtkw-page{ ... }` rule: the surfaces, borders
- * and text labels prefer Aurora variables, then Glass variables, then the
- * legacy LuCI / Argon variables. This keeps ownership of the palette with the
- * active theme - but only when the theme actually exposes one of them.
- * The shipped theme on the reference boards is Argon, and its cascade.css
- * defines NONE of `--surface` / `--color-bg-elevated` / `--background-color-high`
- * / `--surface-sunken` / `--color-bg-secondary` / `--background-color-medium` /
- * `--text` / `--color-text` / `--text-color-high` / `--text-color-low` /
- * `--hairline` / `--color-border` / `--border-color-low` / `--border-color-medium`
- * (its :root carries the Bootstrap 4 palette instead: --primary, --dark-primary,
- * --white, --background-color, --gray-dark, --light, ...), so on Argon every
- * lookup misses and the hardcoded fallbacks below are what actually apply.
- * `--background-color` is deliberately NOT part of the chain: dark.css never
- * re-assigns it (it stays #f4f5f7 in dark mode) and in light mode it equals the
- * page canvas, so panels built on it would blend into the page in both modes.
- * On top of the mesh-conf set this file adds two entries the dashboard needs:
- *   --ds-border-strong  a heavier border for the outer compass ring / toggles
- *   --ds-primary-text   a text-safe primary colour for the selected tab label
- * and the `--ai-*` dashboard accents (NPU/CPU/load + the three WiFi bands),
- * which the gauges paint with. They live on the token layer so a single
- * dark-mode re-tune keeps every gauge in step.
- *
- * `dark` re-tunes the surfaces and text as well as the semantic accents, the
- * `--ai-*` accents and the two border tokens for a dark background: the tints
- * get a higher alpha there, since a .08 wash is invisible on a dark surface.
- * Surfaces and text have to be re-stated here instead of being left to the
- * theme, because the lookup above misses on Argon and the page would otherwise
- * paint white panels with near-black text on a #1e1e1e canvas - the exact
- * failure this block exists to prevent. The concrete values are Argon's own
- * dark palette, so the page reads as part of the theme: page canvas #1e1e1e
- * (dark.css `body`), elevated surface #252526 (what dark.css gives `table th`
- * and the zebra rows), body text #cccccc, secondary text #adb5bd. Measured with
- * the WCAG relative-luminance formula:
- *   --ds-text       #cccccc on #252526 = 9.5:1
- *   --ds-text-muted #adb5bd on #252526 = 7.2:1
- *   --ds-border-strong #757575 on #1e1e1e = 3.62:1  (clears the 3:1 floor)
- *   --ds-border        #454545 on #1e1e1e = 1.74:1  (internal tick rings, no
- *                                                    boundary semantics)
- * The light fallbacks measure 3.65:1 on the compass' #ffffff disc and 3.35:1
- * on the #f4f5f7 page background. It is deliberately NOT gated on
- * :root[data-darkmode="true"] - only some themes set that attribute (Argon
- * never does), so the view decides at runtime with isDarkMode() and appends
- * this string only when it applies.
- *
- * Sizes are em-based, never px: the LuCI theme sets the base font size, and
- * only a relative scale keeps the page in step with it.
- *
- * view/airoha_npu/status.js consumes this through view/airoha/ui.js; keeping
- * the values in one place prevents component styles from drifting apart.
- * ------------------------------------------------------------------------- */
 return baseclass.extend({
-	tokens: '--ds-surface:var(--surface,var(--color-bg-elevated,var(--background-color-high,#fff)));--ds-surface-sunken:var(--surface-sunken,var(--color-bg-secondary,var(--background-color-medium,#f6f8fa)));--ds-border:var(--hairline,var(--color-border,var(--border-color-low,#d8dee4)));--ds-border-strong:var(--hairline,var(--color-border,var(--border-color-medium,#7d8792)));--ds-text:var(--text,var(--color-text,var(--text-color-high,#1f2328)));--ds-text-muted:var(--text,var(--color-text,var(--text-color-low,#5c6773)));--ds-primary:var(--brand,var(--primary-color-high,#0969da));--ds-primary-text:var(--brand,var(--primary-color-high,#0969da));--ds-ok:#1a7f37;--ds-ok-tint:rgba(26,127,55,.08);--ds-ok-line:rgba(26,127,55,.35);--ds-warn:#bc4c00;--ds-warn-tint:rgba(188,76,0,.08);--ds-warn-line:rgba(188,76,0,.35);--ds-error:#cf222e;--ds-error-tint:rgba(207,34,46,.08);--ds-error-line:rgba(207,34,46,.40);--ds-info:#0969da;--ds-info-tint:rgba(9,105,218,.08);--ds-info-line:rgba(9,105,218,.35);--ds-focus-ring:rgba(9,105,218,.32);--ds-band6-tint:rgba(124,58,237,.10);--ds-band6-line:rgba(124,58,237,.32);--ai-npu:#0e7490;--ai-cpu:#c2410c;--ai-load:#a16207;--ai-band-24:#b45309;--ai-band-5:#1d4ed8;--ai-band-6:#7c3aed;--ds-mono:ui-monospace,SFMono-Regular,Consolas,"Liberation Mono",Menlo,monospace;--ds-r-sm:4px;--ds-r-md:6px;--ds-r-lg:8px;--ds-r-pill:999px;--ds-sp-1:.25em;--ds-sp-2:.5em;--ds-sp-3:.75em;--ds-sp-4:1em;--ds-sp-5:1.5em;--ds-fs-xs:.8em;--ds-fs-sm:.88em;--ds-fs-base:1em;--ds-fs-lg:1.1em;--ds-fs-xl:1.35em;--ds-fs-2xl:1.6em;--ds-shadow-1:0 1px 2px rgba(16,24,40,.04)',
+	cssPath: 'view/mtk_wed/mtk-wed.css',
 
-	dark: ':root .mtkw-page{--ds-surface:var(--surface,var(--color-bg-elevated,var(--background-color-high,#252526)));--ds-surface-sunken:var(--surface-sunken,var(--color-bg-secondary,var(--background-color-medium,#1e1e1e)));--ds-border:var(--hairline,var(--color-border,var(--border-color-low,#454545)));--ds-border-strong:var(--hairline,var(--color-border,var(--border-color-medium,#757575)));--ds-text:var(--text,var(--color-text,var(--text-color-high,#cccccc)));--ds-text-muted:var(--text,var(--color-text,var(--text-color-low,#adb5bd)));--ds-ok:#4ac26b;--ds-ok-tint:rgba(74,194,107,.18);--ds-ok-line:rgba(74,194,107,.45);--ds-warn:#e3934a;--ds-warn-tint:rgba(227,147,74,.18);--ds-warn-line:rgba(227,147,74,.45);--ds-error:#f47067;--ds-error-tint:rgba(244,112,103,.18);--ds-error-line:rgba(244,112,103,.5);--ds-info:#4d9cf6;--ds-info-tint:rgba(77,156,246,.18);--ds-info-line:rgba(77,156,246,.45);--ds-focus-ring:rgba(77,156,246,.45);--ds-primary-text:var(--brand,var(--primary-color-high,#4d9cf6));--ds-band6-tint:rgba(124,58,237,.28);--ds-band6-line:rgba(124,58,237,.55);--ai-npu:#22d3ee;--ai-cpu:#fb923c;--ai-load:#fde047;--ai-band-24:#fbbf24;--ai-band-5:#60a5fa;--ai-band-6:#c4b5fd;--ds-shadow-1:none}'
+	tokens: [
+		/* Light Mode (Default — Spatial Alabaster Studio) */
+		'--mtkw-bg:#f2f5f9',
+		'--mtkw-surface:#ffffff',
+		'--mtkw-surface-2:#f6f8fb',
+		'--mtkw-surface-hover:#edf2f8',
+		'--mtkw-stage-bg:#eef3f9',
+		'--mtkw-chassis-top:#edf1f7',
+		'--mtkw-chassis-bot:#e2e8f2',
+		'--mtkw-chassis-slot:#dce4f0',
+		'--mtkw-chassis-shadow:inset 0 1px 0 rgba(255,255,255,.55),inset 0 -1px 0 rgba(15,23,42,.06)',
+		'--mtkw-cage-bg:#ffffff',
+		'--mtkw-cage-inner:#182232',
+		'--mtkw-cage-down:#334155',
+		'--mtkw-border:rgba(15,23,42,.09)',
+		'--mtkw-border-mid:rgba(15,23,42,.15)',
+		'--mtkw-border-strong:rgba(15,23,42,.24)',
+		'--mtkw-text:#0f172a',
+		'--mtkw-text-sec:#334155',
+		'--mtkw-text-muted:#475569',
+		'--mtkw-track:rgba(15,23,42,.08)',
+
+		/* Soft-Gradient Semantic Palette (WCAG 2.1 AA calibrated) */
+		'--mtkw-ppe:#075985',
+		'--mtkw-ppe-start:#0ea5e9',
+		'--mtkw-ppe-end:#0284c7',
+		'--mtkw-ppe-tint:rgba(2,132,199,.10)',
+		'--mtkw-wed:#065f46',
+		'--mtkw-wed-start:#10b981',
+		'--mtkw-wed-end:#059669',
+		'--mtkw-wed-tint:rgba(5,150,105,.10)',
+		'--mtkw-primary:#1d4ed8',
+		'--mtkw-primary-tint:rgba(0,111,255,.10)',
+		'--mtkw-spd-5g:#115e59',
+		'--mtkw-spd-5g-tint:rgba(8,145,178,.11)',
+		'--mtkw-spd-10m:#9a3412',
+		'--mtkw-spd-10m-tint:rgba(194,65,12,.11)',
+		'--mtkw-warn:#92400e',
+		'--mtkw-warn-start:#f59e0b',
+		'--mtkw-warn-end:#d97706',
+		'--mtkw-warn-tint:rgba(217,119,6,.11)',
+		'--mtkw-warn-line:rgba(217,119,6,.36)',
+		'--mtkw-err:#9f1239',
+		'--mtkw-err-start:#f43f5e',
+		'--mtkw-err-end:#e11d48',
+		'--mtkw-err-tint:rgba(225,29,72,.10)',
+		'--mtkw-err-line:rgba(225,29,72,.34)',
+		'--mtkw-band-24:#9a3412',
+		'--mtkw-band-24-tint:rgba(234,88,12,.11)',
+		'--mtkw-band-5:#1d4ed8',
+		'--mtkw-band-5-tint:rgba(37,99,235,.11)',
+		'--mtkw-band-6:#6d28d9',
+		'--mtkw-band-6-tint:rgba(124,58,237,.11)',
+
+		/* Solid Action, Active Chip & Error Surface Foregrounds */
+		'--mtkw-btn-pri-1:#0369a1',
+		'--mtkw-btn-pri-2:#1d4ed8',
+		'--mtkw-btn-pri-fg:#ffffff',
+		'--mtkw-btn-warn-1:#fbbf24',
+		'--mtkw-btn-warn-2:#f59e0b',
+		'--mtkw-btn-warn-fg:#0f172a',
+		'--mtkw-chip-active-bg:#1d4ed8',
+		'--mtkw-chip-active-fg:#ffffff',
+		'--mtkw-err-solid-bg:#be123c',
+		'--mtkw-err-solid-fg:#ffffff',
+		'--mtkw-err-lbl:#334155',
+
+		/* Ambient Layered Elevation & Frosted Surfaces */
+		'--mtkw-shadow-card:0 1px 3px rgba(15,23,42,.05),0 8px 24px -6px rgba(15,23,42,.07)',
+		'--mtkw-shadow-hover:0 4px 12px rgba(15,23,42,.07),0 12px 28px -8px rgba(15,23,42,.11)',
+		'--mtkw-shadow-soft:0 1px 3px rgba(15,23,42,.06)',
+		'--mtkw-drawer-bg:rgba(255,255,255,.92)',
+		'--mtkw-shadow-drawer:-10px 0 38px rgba(15,23,42,.15),0 4px 16px rgba(15,23,42,.06)',
+		'--mtkw-backdrop:rgba(15,23,42,.26)',
+		'--mtkw-glass-tip:rgba(255,255,255,.94)',
+		'--mtkw-stage-glow:radial-gradient(ellipse at 50% 45%,rgba(2,132,199,.06),transparent 72%)',
+		'--mtkw-arc-filter:none',
+		'--mtkw-toast-bg:#0f172a',
+		'--mtkw-toast-fg:#f8fafc',
+
+		/* Spatial Geometry & Typography Scale */
+		'--mtkw-r-card:18px',
+		'--mtkw-r-panel:14px',
+		'--mtkw-r-node:12px',
+		'--mtkw-r-ctrl:10px',
+		'--mtkw-r-pill:999px',
+		'--mtkw-font-sans:system-ui,-apple-system,"Segoe UI",Roboto,"Noto Sans TC","PingFang TC","Microsoft JhengHei",sans-serif',
+		'--mtkw-font-mono:ui-monospace,SFMono-Regular,Consolas,"Liberation Mono",Menlo,monospace'
+	].join(';'),
+
+	dark: ':root .mtkw-page{' + [
+		/* Dark Mode (Luminous Midnight-Slate — elevated above Argon #1e1e1e & Aurora #0b1018) */
+		'--mtkw-bg:#141a24',
+		'--mtkw-surface:#222a38',
+		'--mtkw-surface-2:#293344',
+		'--mtkw-surface-hover:#313d52',
+		'--mtkw-stage-bg:#171e2b',
+		'--mtkw-chassis-top:#263042',
+		'--mtkw-chassis-bot:#1c2433',
+		'--mtkw-chassis-slot:#141b27',
+		'--mtkw-chassis-shadow:inset 0 1px 0 rgba(255,255,255,.07),inset 0 -1px 0 rgba(0,0,0,.45)',
+		'--mtkw-cage-bg:#232d40',
+		'--mtkw-cage-inner:#0a0f18',
+		'--mtkw-cage-down:#172030',
+		'--mtkw-border:rgba(226,238,255,.11)',
+		'--mtkw-border-mid:rgba(226,238,255,.17)',
+		'--mtkw-border-strong:rgba(226,238,255,.28)',
+		'--mtkw-text:#f1f5f9',
+		'--mtkw-text-sec:#d4deea',
+		'--mtkw-text-muted:#b9c7d9',
+		'--mtkw-track:rgba(226,238,255,.12)',
+
+		'--mtkw-ppe:#7dd3fc',
+		'--mtkw-ppe-start:#38bdf8',
+		'--mtkw-ppe-end:#3b82f6',
+		'--mtkw-ppe-tint:rgba(56,189,248,.16)',
+		'--mtkw-wed:#6ee7b7',
+		'--mtkw-wed-start:#34d399',
+		'--mtkw-wed-end:#14b8a6',
+		'--mtkw-wed-tint:rgba(52,211,153,.17)',
+		'--mtkw-primary:#bfdbfe',
+		'--mtkw-primary-tint:rgba(75,166,255,.18)',
+		'--mtkw-spd-5g:#67e8f9',
+		'--mtkw-spd-5g-tint:rgba(34,211,238,.17)',
+		'--mtkw-spd-10m:#fdba74',
+		'--mtkw-spd-10m-tint:rgba(251,146,60,.18)',
+		'--mtkw-warn:#fde68a',
+		'--mtkw-warn-start:#fbbf24',
+		'--mtkw-warn-end:#f59e0b',
+		'--mtkw-warn-tint:rgba(251,191,36,.17)',
+		'--mtkw-warn-line:rgba(251,191,36,.42)',
+		'--mtkw-err:#fecdd3',
+		'--mtkw-err-start:#fb7185',
+		'--mtkw-err-end:#f43f5e',
+		'--mtkw-err-tint:rgba(251,113,133,.18)',
+		'--mtkw-err-line:rgba(251,113,133,.44)',
+		'--mtkw-band-24:#fdba74',
+		'--mtkw-band-24-tint:rgba(251,146,60,.18)',
+		'--mtkw-band-5:#93c5fd',
+		'--mtkw-band-5-tint:rgba(96,165,250,.18)',
+		'--mtkw-band-6:#ddd6fe',
+		'--mtkw-band-6-tint:rgba(167,139,250,.18)',
+
+		'--mtkw-btn-pri-1:#38bdf8',
+		'--mtkw-btn-pri-2:#60a5fa',
+		'--mtkw-btn-pri-fg:#09111d',
+		'--mtkw-btn-warn-1:#fbbf24',
+		'--mtkw-btn-warn-2:#f59e0b',
+		'--mtkw-btn-warn-fg:#0f172a',
+		'--mtkw-chip-active-bg:#60a5fa',
+		'--mtkw-chip-active-fg:#09111d',
+		'--mtkw-err-solid-bg:#fb7185',
+		'--mtkw-err-solid-fg:#0f172a',
+		'--mtkw-err-lbl:#e2e8f0',
+
+		'--mtkw-shadow-card:inset 0 1px 0 rgba(255,255,255,.08),0 6px 22px -4px rgba(0,0,0,.44)',
+		'--mtkw-shadow-hover:inset 0 1px 0 rgba(255,255,255,.11),0 10px 28px -4px rgba(0,0,0,.55)',
+		'--mtkw-shadow-soft:0 2px 8px rgba(0,0,0,.32)',
+		'--mtkw-drawer-bg:rgba(26,34,48,.94)',
+		'--mtkw-shadow-drawer:inset 0 1px 0 rgba(255,255,255,.09),-14px 0 44px rgba(0,0,0,.62)',
+		'--mtkw-backdrop:rgba(4,8,15,.58)',
+		'--mtkw-glass-tip:rgba(22,29,41,.94)',
+		'--mtkw-stage-glow:radial-gradient(ellipse at 50% 45%,rgba(56,189,248,.09),transparent 72%)',
+		'--mtkw-arc-filter:drop-shadow(0 0 6px rgba(56,189,248,.24))',
+		'--mtkw-toast-bg:#f1f5f9',
+		'--mtkw-toast-fg:#0f172a'
+	].join(';') + '}'
 });

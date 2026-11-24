@@ -3,47 +3,995 @@ msgstr ""
 "Content-Type: text/plain; charset=UTF-8\n"
 "Language: zh_Hans\n"
 
-msgid "Port"
-msgstr "端口"
-
-msgid "Path"
-msgstr "路径"
-
-msgid "Link"
-msgstr "连接"
-
-msgid "Speed / Duplex"
-msgstr "速率 / 双工"
-
-msgid "RX / TX bytes"
-msgstr "接收 / 发送字节"
-
-msgid "RX / TX packets"
-msgstr "接收 / 发送封包"
-
-msgid "RX / TX errors"
-msgstr "接收 / 发送错误"
-
-msgid "RX / TX dropped"
-msgstr "接收 / 发送丢弃"
-
-msgid "Switch"
-msgstr "交换器"
-
-msgid "Link up"
-msgstr "已连接"
-
-msgid "Link down"
-msgstr "未连接"
-
-msgid "Port data unavailable"
-msgstr "无法取得端口数据"
+msgid "%d / %d bound"
+msgstr "已绑定 %d / %d"
 
 msgid "%d / %d up"
 msgstr "%d / %d 已连接"
 
+msgid "%d PPE · %s"
+msgstr "%d 个 PPE 引擎 · %s"
+
+msgid "%d band links"
+msgstr "%d 条频段链路"
+
+msgid "%d clients"
+msgstr "%d 个客户端"
+
+msgid "%d err"
+msgstr "%d 错误"
+
+msgid "%d links"
+msgstr "%d 链路"
+
+msgid "%d port errors"
+msgstr "%d 端口错误"
+
+msgid "%d ports"
+msgstr "%d 端口"
+
+msgid "%d unique"
+msgstr "全局唯一 %d"
+
+msgid "%d visible on page"
+msgstr "当前页显示 %d 条"
+
+msgid "%d–%d of %d"
+msgstr "第 %d–%d 条，共 %d 条"
+
+msgid "%s errors"
+msgstr "%s 错误"
+
+msgid "%s errors/dropped"
+msgstr "%s 错误/丢弃"
+
+msgid "0 errors"
+msgstr "0 错误"
+
+msgid "Active"
+msgstr "当前运行"
+
+msgid "Airtime"
+msgstr "空口效率"
+
+msgid "All PPEs"
+msgstr "所有 PPE"
+
+msgid "All states"
+msgstr "所有状态"
+
+msgid "All types"
+msgstr "所有类型"
+
+msgid "All-in-One"
+msgstr "全部展开 (All-in-One)"
+
+msgid "Applied %s · %s"
+msgstr "已应用 %s · %s"
+
+msgid "Architecture"
+msgstr "架构"
+
+msgid "Automatic rollback could not complete. Inspect the recovery directory above on the router before rebooting."
+msgstr "自动回滚未能完成。请先在路由器上检查上述恢复目录，再重新启动。"
+
+msgid "Avg %s"
+msgstr "平均负载 %s"
+
+msgid "Avg packet"
+msgstr "平均数据包大小"
+
+msgid "Back to Tabs"
+msgstr "切回标签页模式"
+
+msgid "Background paused"
+msgstr "后台已暂停"
+
+msgid "Band"
+msgstr "频段"
+
+msgid "Bidirectional TX and RX wireless hardware offload active with WO firmware."
+msgstr "已通过 WO 固件启用 TX 和 RX 双向无线硬件卸载。"
+
+msgid "Bind rate"
+msgstr "绑定率"
+
+msgid "Bound"
+msgstr "已绑定"
+
+msgid "Built %s"
+msgstr "构建于 %s"
+
+msgid "Bypass / Down"
+msgstr "旁路 / 未连接"
+
+msgid "Bytes"
+msgstr "字节"
+
+msgid "CPU Frequency & Utilization"
+msgstr "CPU 频率与使用率"
+
+msgid "CPU Temperature"
+msgstr "CPU 温度"
+
+msgid "CPU frequency scaling is not available on this board"
+msgstr "此设备不支持 CPU 调频"
+
+msgid "CPU settings saved — they will persist after a reboot"
+msgstr "CPU 设置已保存，重新启动后仍会保留"
+
+msgid "CPU%d sampling"
+msgstr "CPU%d 采样中"
+
+msgid "CPU%d total %s, User/Sys %s, SoftIRQ %s"
+msgstr "CPU%d 总使用率 %s，常规负载 %s，SoftIRQ 软中断 %s"
+
+msgid "Cannot read status from the luci.mtk_wed backend: %s"
+msgstr "无法从 luci.mtk_wed 后端读取状态：%s"
+
+msgid "Cannot read the Wi-Fi statistics: %s"
+msgstr "无法读取 Wi-Fi 统计：%s"
+
+msgid "Changes apply immediately and persist after reboot"
+msgstr "应用后立即生效并在重新启动后保留"
+
+msgid "Checksum errors"
+msgstr "校验和错误"
+
+msgid "Clear filters"
+msgstr "清除筛选"
+
+msgid "Clear highlight"
+msgstr "清除路径高亮"
+
+msgid "Clear search"
+msgstr "清除搜索"
+
+msgid "Click any row to inspect L2 MAC and NAT details"
+msgstr "点击任意行可查看 L2 MAC 与 NAT 详情"
+
+msgid "Clients"
+msgstr "客户端"
+
+msgid "Clock / Temperature"
+msgstr "实时频率 / 温度"
+
+msgid "Close"
+msgstr "关闭"
+
+msgid "Collapse"
+msgstr "收起"
+
+msgid "Configured"
+msgstr "已写入配置"
+
+msgid "Connection stale"
+msgstr "连接异常"
+
+msgid "Copied"
+msgstr "已复制"
+
+msgid "Copied %s"
+msgstr "已复制 %s"
+
+msgid "Copy"
+msgstr "复制"
+
+msgid "Copy L2 MAC"
+msgstr "复制 L2 MAC"
+
+msgid "Copy New Flow"
+msgstr "复制转换后流量"
+
+msgid "Copy Original Flow"
+msgstr "复制原始流量"
+
+msgid "Copy Summary"
+msgstr "复制完整摘要"
+
+msgid "Copy path"
+msgstr "复制路径"
+
+msgid "Core Count"
+msgstr "核心数"
+
+msgid "DSA Switch RJ45"
+msgstr "DSA 交换机 RJ45"
+
+msgid "Direct"
+msgstr "直连"
+
+msgid "Direct GDM"
+msgstr "直连 GDM"
+
+msgid "Direct Ports (GDM)"
+msgstr "直连端口 (GDM)"
+
+msgid "Direct RJ45"
+msgstr "直连 RJ45"
+
+msgid "Direct SFP+ Ports (GDM)"
+msgstr "直连 SFP+ 光口 (GDM)"
+
+msgid "Disabled"
+msgstr "已停用"
+
+msgid "Disabled (N)"
+msgstr "停用 (N)"
+
+msgid "Dismiss"
+msgstr "关闭提示"
+
+msgid "Driver module"
+msgstr "内核驱动模块"
+
+msgid "Enabled"
+msgstr "已启用"
+
+msgid "Enabled (Y)"
+msgstr "启用 (Y)"
+
+msgid "Error"
+msgstr "错误"
+
+msgid "Error: %s"
+msgstr "错误：%s"
+
+msgid "Errors / Dropped"
+msgstr "错误 / 丢弃"
+
+msgid "Ethernet Ports"
+msgstr "以太网端口"
+
+msgid "Ethernet Ports & GDM MAC Counters"
+msgstr "以太网端口与 GDM MAC 计数"
+
+msgid "Every %d s"
+msgstr "每 %d 秒"
+
+msgid "FCS errors"
+msgstr "FCS 错误"
+
+msgid "Failed"
+msgstr "失败"
+
+msgid "Failed to save WED settings"
+msgstr "保存 WED 设置失败"
+
+msgid "Fair"
+msgstr "尚可"
+
+msgid "Filter %s flows"
+msgstr "筛选 %s 流量"
+
+msgid "Filter flows on page"
+msgstr "筛选当前页流量"
+
+msgid "Fixed clock"
+msgstr "固定频率"
+
+msgid "Flow control frames"
+msgstr "流量控制帧"
+
+msgid "Flow summary"
+msgstr "流量摘要"
+
+msgid "Freeze"
+msgstr "冻结表格"
+
+msgid "Frequency History"
+msgstr "频率历史"
+
+msgid "Frozen"
+msgstr "已冻结"
+
+msgid "Full duplex"
+msgstr "全双工"
+
+msgid "Good"
+msgstr "良好"
+
+msgid "Governor"
+msgstr "调度器"
+
+msgid "Grant access to MediaTek hardware offload status and settings"
+msgstr "允许访问 MediaTek 硬件加速状态与设置"
+
+msgid "HW offload active · Elevated SoftIRQ"
+msgstr "硬件卸载中 · SoftIRQ 偏高"
+
+msgid "HW offload active · Low SoftIRQ"
+msgstr "硬件卸载中 · SoftIRQ 低"
+
+msgid "Half duplex"
+msgstr "半双工"
+
+msgid "Hardware Datapath & Controls"
+msgstr "硬件数据路径与加速控制"
+
+msgid "Hardware Datapath Topology"
+msgstr "硬件数据路径拓扑"
+
+msgid "Hardware Datapath Topology & Controls"
+msgstr "硬件数据路径拓扑与加速控制"
+
+msgid "Hardware Flow Offload"
+msgstr "硬件流量卸载"
+
+msgid "Hardware MIB Counters (ethtool -S)"
+msgstr "硬件 MAC MIB 计数（ethtool -S）"
+
+msgid "Hardware MIB counters of each GDM, read with ethtool -S."
+msgstr "各 GDM 的硬件 MIB 计数，通过 ethtool -S 读取。"
+
+msgid "Hardware Offload"
+msgstr "硬件加速"
+
+msgid "Hardware Offload Gauges"
+msgstr "硬件卸载核心仪表"
+
+msgid "Hardware flow offload enabled"
+msgstr "已启用硬件流量卸载"
+
+msgid "Hardware offload"
+msgstr "硬件卸载"
+
+msgid "Hardware offload active"
+msgstr "硬件卸载运行中"
+
+msgid "Hardware offload optimal"
+msgstr "硬件卸载最佳状态"
+
+msgid "Hide"
+msgstr "隐藏"
+
+msgid "Hide link details"
+msgstr "收起链路详情"
+
+msgid "High Temp"
+msgstr "高温告警"
+
+msgid "Hover to inspect"
+msgstr "悬停查看数值"
+
+msgid "Incomplete MLO sampling"
+msgstr "MLO 采样不完整"
+
+msgid "Index"
+msgstr "索引"
+
+msgid "Inspect %s band"
+msgstr "查看 %s 频段详情"
+
+msgid "Inspect L2 MAC →"
+msgstr "查看 L2 MAC →"
+
+msgid "Inspector"
+msgstr "检查器"
+
+msgid "Install iw"
+msgstr "请安装 iw"
+
+msgid "Install iw to view Wi-Fi statistics."
+msgstr "安装 iw 后即可查看 Wi-Fi 统计。"
+
+msgid "Install the ethtool package to show the hardware MAC counters."
+msgstr "安装 ethtool 软件包后即可显示硬件 MAC 计数。"
+
+msgid "Instant"
+msgstr "即时生效"
+
+msgid "Interface type"
+msgstr "接口类型"
+
+msgid "Interfaces"
+msgstr "无线接口"
+
+msgid "L2 Ethernet (eth MAC)"
+msgstr "L2 以太网（eth MAC）"
+
+msgid "Last complete per-band TX rates are preserved."
+msgstr "已保留上一次完整采样的各频段 TX 速率。"
+
+msgid "Link down"
+msgstr "未连接"
+
+msgid "Link up"
+msgstr "已连接"
+
+msgid "Live (Left: MHz · Right: °C)"
+msgstr "实时（左轴 MHz · 右轴 °C）"
+
+msgid "Live RX"
+msgstr "实时 RX"
+
+msgid "Live TX"
+msgstr "实时 TX"
+
+msgid "Live Throughput & Port Counters"
+msgstr "端口实时吞吐量与计数"
+
+msgid "Live · 5s"
+msgstr "实时更新 · 5s"
+
+msgid "Load %s"
+msgstr "负载 %s"
+
+msgid "Loading…"
+msgstr "加载中…"
+
+msgid "MAC Counters (GDM)"
+msgstr "MAC 计数（GDM）"
+
+msgid "MAC counters are unavailable."
+msgstr "无法获取 MAC 计数。"
+
+msgid "MIB N/A"
+msgstr "MIB 不可用"
+
+msgid "MIB OK"
+msgstr "MIB 正常"
+
+msgid "MIB errors"
+msgstr "MIB 错误"
+
+msgid "MIB unavailable"
+msgstr "MIB 不可用"
+
+msgid "MLO devices connect across multiple bands simultaneously, so summed band links (%d) exceed unique stations (%d)."
+msgstr "MLO 设备会同时连接到多个频段，因此各频段链路总和（%d）大于全局唯一客户端数（%d）。"
+
+msgid "MLO · %d links"
+msgstr "MLO · %d 条链路"
+
+msgid "Max"
+msgstr "上限"
+
+msgid "Max %s"
+msgstr "上限 %s"
+
+msgid "Max Freq"
+msgstr "最高频率"
+
+msgid "MediaTek SoC"
+msgstr "MediaTek SoC"
+
+msgid "MediaTek SoC Status"
+msgstr "MediaTek SoC 状态"
+
+msgid "Mode"
+msgstr "工作模式"
+
+msgid "NAT"
+msgstr "NAT 转换"
+
+msgid "New / NAT Flow"
+msgstr "转换后 (New / NAT 流)"
+
+msgid "New Flow"
+msgstr "转换后"
+
+msgid "Next page"
+msgstr "下一页"
+
+msgid "No NAT translation (or unbound)"
+msgstr "无 NAT 转换（或未绑定）"
+
+msgid "No PPE or WED debugfs entries were found. Is debugfs mounted?"
+msgstr "未找到 PPE 或 WED 的 debugfs 节点，请确认 debugfs 已挂载。"
+
+msgid "No WED instances found"
+msgstr "未找到 WED 实例"
+
+msgid "No WO firmware"
+msgstr "无 WO 固件"
+
+msgid "No Wi-Fi"
+msgstr "无 Wi-Fi"
+
+msgid "No Wi-Fi device attached to this WED instance."
+msgstr "此 WED 实例未关联任何 Wi-Fi 设备。"
+
+msgid "No Wi-Fi hardware"
+msgstr "无 Wi-Fi 硬件"
+
+msgid "No active AP"
+msgstr "无活动 AP"
+
+msgid "No active bands"
+msgstr "无活动频段"
+
+msgid "No clients"
+msgstr "无客户端"
+
+msgid "No cpufreq OPP"
+msgstr "无 cpufreq OPP"
+
+msgid "No ethtool"
+msgstr "缺少 ethtool"
+
+msgid "No iw"
+msgstr "缺少 iw"
+
+msgid "No matching flows"
+msgstr "没有匹配的流量"
+
+msgid "Nominal"
+msgstr "温度正常"
+
+msgid "Not attached"
+msgstr "未连接"
+
+msgid "Now"
+msgstr "实时"
+
+msgid "Offload Direction"
+msgstr "卸载方向说明"
+
+msgid "Offload Statistics"
+msgstr "卸载统计"
+
+msgid "Offload established NAT and routed flows to PPE hardware (flow_offloading_hw)."
+msgstr "将已建立连接的 NAT 与路由流量卸载至 PPE 硬件处理（flow_offloading_hw）。"
+
+msgid "Offload wireless packets through WED and WO firmware to reduce CPU load."
+msgstr "通过 WED 与 WO 固件卸载无线数据包，降低 CPU 负载。"
+
+msgid "Open Flow Table"
+msgstr "打开完整流量表"
+
+msgid "Original Flow"
+msgstr "原始流"
+
+msgid "Original Flow (5-Tuple · RFC 5952)"
+msgstr "原始流（5-Tuple · RFC 5952）"
+
+msgid "Overview"
+msgstr "概览"
+
+msgid "PHY / Expected"
+msgstr "PHY / 预期"
+
+msgid "PORTS"
+msgstr "物理端口"
+
+msgid "PPE Bind Rate"
+msgstr "PPE 硬件绑定率"
+
+msgid "PPE Engines"
+msgstr "PPE 引擎"
+
+msgid "PPE Flow Offload Entries"
+msgstr "PPE 流量卸载表"
+
+msgid "PPE Flows"
+msgstr "PPE 流量表"
+
+msgid "PPE debugfs not found"
+msgstr "未找到 PPE debugfs"
+
+msgid "PPE table unavailable"
+msgstr "无法获取 PPE 流量表"
+
+msgid "Packets"
+msgstr "数据包"
+
+msgid "Partial"
+msgstr "部分采样"
+
+msgid "Partial sampling · MLO incomplete"
+msgstr "部分采样 · MLO 链路不完整"
+
+msgid "Path"
+msgstr "路径"
+
+msgid "Pause"
+msgstr "暂停刷新"
+
+msgid "Paused"
+msgstr "已暂停"
+
+msgid "Per-Core CPU Utilization"
+msgstr "每核心实时使用率"
+
+msgid "Poor"
+msgstr "差"
+
+msgid "Port"
+msgstr "端口"
+
+msgid "Port Specifications & Counters"
+msgstr "端口规格与统计"
+
+msgid "Port Statistics"
+msgstr "端口统计"
+
+msgid "Port and GDM views"
+msgstr "端口与 GDM 视图"
+
+msgid "Port counters only"
+msgstr "仅端口统计"
+
+msgid "Port data unavailable"
+msgstr "无法获取端口数据"
+
+msgid "Ports & GDM"
+msgstr "端口与 GDM"
+
+msgid "Previous page"
+msgstr "上一页"
+
+msgid "Quick filter PPE:"
+msgstr "快速筛选 PPE："
+
+msgid "RX / TX bytes"
+msgstr "接收 / 发送字节"
+
+msgid "RX / TX dropped"
+msgstr "接收 / 发送丢弃"
+
+msgid "RX / TX errors"
+msgstr "接收 / 发送错误"
+
+msgid "RX / TX packets"
+msgstr "接收 / 发送数据包"
+
+msgid "RX bytes"
+msgstr "接收字节"
+
+msgid "RX bytes / packets"
+msgstr "RX 字节 / 数据包"
+
+msgid "RX long errors"
+msgstr "RX 超长帧错误"
+
+msgid "RX overflow"
+msgstr "接收溢出"
+
+msgid "RX packets"
+msgstr "接收数据包"
+
+msgid "RX short errors"
+msgstr "RX 超短帧错误"
+
+msgid "Read-only"
+msgstr "只读权限"
+
+msgid "Read-only access; settings cannot be modified"
+msgstr "仅具只读权限，无法修改设置"
+
+msgid "Reboot required"
+msgstr "需重新启动"
+
+msgid "Recovery path"
+msgstr "恢复路径"
+
+msgid "Refresh"
+msgstr "立即刷新"
+
+msgid "Refresh interval"
+msgstr "刷新间隔"
+
+msgid "Refreshing…"
+msgstr "刷新中…"
+
+msgid "Resume"
+msgstr "恢复刷新"
+
+msgid "Retry"
+msgstr "重传"
+
+msgid "Revert"
+msgstr "恢复设置"
+
+msgid "Reverting…"
+msgstr "恢复中…"
+
+msgid "SFP+ OPEN"
+msgstr "SFP+ 空槽"
+
+msgid "SFP+ Optical"
+msgstr "SFP+ 光口"
+
+msgid "SW Forward"
+msgstr "软件转发模式"
+
+msgid "Sampling…"
+msgstr "采样中…"
+
+msgid "Save"
+msgstr "保存"
+
+msgid "Saved. Reboot the router to apply the Wi-Fi acceleration change."
+msgstr "已保存。请重新启动路由器以使 Wi-Fi 加速更改生效。"
+
+msgid "Saving…"
+msgstr "保存中…"
+
+msgid "Search IP, port, MAC, VLAN, index…"
+msgstr "搜索 IP、端口、MAC、VLAN、索引…"
+
+msgid "Select any physical port to expand live throughput, GDM → PPE path, and hardware MAC MIB counters."
+msgstr "点击任意物理端口，即可展开实时吞吐量、GDM → PPE 路径及硬件 MAC MIB 计数。"
+
+msgid "Show link details"
+msgstr "查看链路详情"
+
+msgid "Signal"
+msgstr "信号"
+
+msgid "Snapshot %ds ago"
+msgstr "快照于 %d 秒前"
+
+msgid "Software bypass"
+msgstr "软件旁路"
+
+msgid "Software forwarding · Elevated SoftIRQ"
+msgstr "软件转发 · SoftIRQ 偏高"
+
+msgid "Software forwarding · Low SoftIRQ"
+msgstr "软件转发 · SoftIRQ 低"
+
+msgid "Software forwarding · PPE bypassed"
+msgstr "软件转发模式 · PPE 旁路"
+
+msgid "Software offload: %s · PPE engines: %d"
+msgstr "软件卸载：%s · PPE 引擎：%d 个"
+
+msgid "Software only"
+msgstr "仅软件"
+
+msgid "Some Wi-Fi data could not be read or saved; the rates may be incomplete."
+msgstr "部分 Wi-Fi 数据无法读取或保存；速率可能不完整。"
+
+msgid "Speed / Duplex"
+msgstr "速率 / 双工"
+
+msgid "State"
+msgstr "状态"
+
+msgid "Status"
+msgstr "状态"
+
+msgid "Status views"
+msgstr "状态视图标签页"
+
+msgid "Switch"
+msgstr "交换机"
+
+msgid "Switched to software forwarding"
+msgstr "已切换为软件转发模式"
+
+msgid "Switches here apply the hardware offload settings for this device."
+msgstr "此处的开关将应用到此设备的硬件加速设置。"
+
+msgid "System → Reboot"
+msgstr "系统 → 重启"
+
+msgid "TX"
+msgstr "发送"
+
+msgid "TX + RX"
+msgstr "收发"
+
+msgid "TX bytes"
+msgstr "发送字节"
+
+msgid "TX bytes / packets"
+msgstr "TX 字节 / 数据包"
+
+msgid "TX collisions"
+msgstr "TX 冲突"
+
+msgid "TX offload active; RX buffer manager register could not be read."
+msgstr "已启用 TX 硬件卸载；无法读取 RX 缓冲区管理寄存器。"
+
+msgid "TX only"
+msgstr "仅发送"
+
+msgid "TX packets"
+msgstr "发送数据包"
+
+msgid "TX skip"
+msgstr "TX 跳过"
+
+msgid "TX, RX unknown"
+msgstr "发送，接收未知"
+
+msgid "TX-only wireless hardware offload active; RX frames are handled by CPU DMA."
+msgstr "仅启用 TX 无线硬件卸载；RX 数据帧由 CPU DMA 处理。"
+
+msgid "The switch has been restored to the current saved configuration."
+msgstr "开关已恢复为当前保存的配置状态。"
+
+msgid "To avoid corrupting module files, writing was aborted. Check /etc/modules.conf, /etc/modules-boot.d/, and /etc/modules.d/ so quoted values stay on one line under 511 characters."
+msgstr "为避免损坏模块配置文件，已中止写入。请检查 /etc/modules.conf、/etc/modules-boot.d/ 和 /etc/modules.d/，确保带引号的参数值位于同一行且不超过 511 个字符。"
+
+msgid "Try again"
+msgstr "重试"
+
+msgid "Type"
+msgstr "类型"
+
+msgid "Unable to read hardware MAC counters for this GDM."
+msgstr "无法读取此 GDM 的硬件 MAC 计数。"
+
+msgid "Unavailable"
+msgstr "不可用"
+
+msgid "Unbound"
+msgstr "未绑定"
+
+msgid "Unfreeze"
+msgstr "解除冻结"
+
+msgid "Unknown"
+msgstr "未知"
+
+msgid "Unknown speed"
+msgstr "未知速率"
+
+msgid "User/Sys"
+msgstr "常规负载"
+
+msgid "Version"
+msgstr "版本"
+
+msgid "WED WIRELESS"
+msgstr "WED 无线加速"
+
+msgid "WED attached"
+msgstr "WED 已连接"
+
+msgid "WED configuration reverted to active state"
+msgstr "WED 配置已恢复为当前运行状态"
+
+msgid "WED reboot required"
+msgstr "WED 需重启"
+
+msgid "WI-FI BANDS"
+msgstr "Wi-Fi 频段"
+
+msgid "WO firmware"
+msgstr "WO 固件"
+
+msgid "Warm"
+msgstr "温度偏高"
+
+msgid "Wi-Fi & MLO"
+msgstr "Wi-Fi 与 MLO"
+
+msgid "Wi-Fi Acceleration (WED)"
+msgstr "Wi-Fi 加速（WED）"
+
+msgid "Wi-Fi Acceleration (WED) setting changed — reboot required"
+msgstr "Wi-Fi 加速（WED）设置已更改，需重新启动后生效"
+
+msgid "Wi-Fi Airtime Efficiency"
+msgstr "Wi-Fi 空口效率"
+
+msgid "Wi-Fi Band Details"
+msgstr "Wi-Fi 频段详情"
+
+msgid "Wi-Fi driver not loaded"
+msgstr "Wi-Fi 驱动未加载"
+
+msgid "Wi-Fi stats unavailable"
+msgstr "无法获取 Wi-Fi 统计"
+
+msgid "Wired offload only"
+msgstr "仅有线硬件卸载"
+
+msgid "another save is in progress"
+msgstr "另一项保存操作正在进行中"
+
+msgid "cannot apply the CPU settings"
+msgstr "无法应用 CPU 设置"
+
+msgid "cannot determine the firewall reload trigger"
+msgstr "无法判断防火墙是否已注册重新加载触发条件"
+
+msgid "cannot lock the settings"
+msgstr "无法锁定设置"
+
+msgid "cannot parse Wi-Fi interfaces"
+msgstr "无法解析 Wi-Fi 接口"
+
+msgid "cannot prepare the WED settings"
+msgstr "无法准备 WED 设置"
+
+msgid "cannot read PPE tables"
+msgstr "无法读取 PPE 流量表"
+
+msgid "cannot read the PPE snapshot"
+msgstr "无法读取 PPE 快照"
+
+msgid "cannot safely save WED settings with oversized configuration lines"
+msgstr "WED 配置行过长，无法安全保存设置"
+
+msgid "cannot safely save WED settings with quotes spanning lines or files"
+msgstr "WED 参数的引号跨越行或文件，无法安全保存设置"
+
+msgid "cannot save or restore the WED settings; recovery files: %s"
+msgstr "无法保存或恢复 WED 设置；恢复文件：%s"
+
+msgid "cannot save the CPU settings; previous settings restored"
+msgstr "无法保存 CPU 设置；已恢复先前设置"
+
+msgid "cannot save the WED settings; previous settings restored"
+msgstr "无法保存 WED 设置；已恢复先前设置"
+
+msgid "cannot save the firewall settings"
+msgstr "无法保存防火墙设置"
+
+msgid "cannot snapshot PPE tables"
+msgstr "无法获取 PPE 流量表"
+
+msgid "cannot verify the committed firewall settings"
+msgstr "无法确认防火墙设置已写入"
+
 msgid "conservative"
 msgstr "保守"
+
+msgid "cores"
+msgstr "核心"
+
+msgid "could not apply the saved flow offload setting"
+msgstr "无法应用已保存的流量卸载设置"
+
+msgid "could not verify firewall transaction rollback"
+msgstr "无法确认防火墙事务是否已还原"
+
+msgid "cpufreq unavailable"
+msgstr "无法使用 CPU 调频"
+
+msgid "enabled must be 0 or 1"
+msgstr "enabled 参数必须为 0 或 1"
+
+msgid "ethtool not installed"
+msgstr "未安装 ethtool"
+
+msgid "firewall reload failed and reverting the setting also failed"
+msgstr "重新加载防火墙失败，且恢复设置也失败"
+
+msgid "firewall reload failed; flow offload setting reverted"
+msgstr "重新加载防火墙失败；已恢复流量卸载设置"
+
+msgid "firewall reload failed; flow offload setting was modified concurrently and not reverted"
+msgstr "重新加载防火墙失败；流量卸载设置已被同时修改，故未恢复"
+
+msgid "firewall settings are locked by another pending apply"
+msgstr "防火墙设置正被另一项待确认的应用操作锁定"
+
+msgid "firewall settings restored; could not verify firewall reload"
+msgstr "已还原防火墙设置，但无法确认防火墙已重新加载"
+
+msgid "firewall settings verification failed; previous settings restored"
+msgstr "防火墙设置验证失败，已还原先前设置"
+
+msgid "firewall transaction confirmation failed; previous settings restored"
+msgstr "防火墙事务确认失败，已还原先前设置"
+
+msgid "flows"
+msgstr "条"
+
+msgid "invalid interval"
+msgstr "无效的刷新间隔"
+
+msgid "invalid page"
+msgstr "无效的页码"
+
+msgid "invalid ppe"
+msgstr "无效的 PPE 编号"
+
+msgid "invalid state"
+msgstr "无效的状态筛选"
+
+msgid "invalid type"
+msgstr "无效的类型筛选"
+
+msgid "iw dev failed"
+msgstr "iw dev 执行失败"
 
 msgid "ondemand"
 msgstr "按需"
@@ -54,411 +1002,20 @@ msgstr "性能"
 msgid "powersave"
 msgstr "省电"
 
-msgid "userspace"
-msgstr "用户空间"
-
-msgid "CPU Info"
-msgstr "CPU 信息"
-
-msgid "CPU model / temperature"
-msgstr "CPU 型号 / 温度"
-
-msgid "Model"
-msgstr "型号"
-
-msgid "Architecture"
-msgstr "架构"
-
-msgid "Core Count"
-msgstr "内核数"
-
-msgid "Temperature"
-msgstr "温度"
-
-msgid "Error: %s"
-msgstr "错误：%s"
-
-msgid "CPU settings saved — they will persist after a reboot"
-msgstr "CPU 设置已保存，重新开机后仍会保留"
-
-msgid "Save"
-msgstr "保存"
-
-msgid "Saving…"
-msgstr "保存中…"
-
-msgid "CPU Control"
-msgstr "CPU 控制"
-
-msgid "Governor"
-msgstr "调速器"
-
-msgid "Max Freq"
-msgstr "最高频率"
-
-msgid "CPU frequency scaling is not available on this board"
-msgstr "这台设备不支持 CPU 调频"
-
-msgid "No data"
-msgstr "没有数据"
-
-msgid "Frequency History"
-msgstr "频率历史"
-
-msgid "Not available"
-msgstr "无法使用"
-
-msgid "No WED instances found"
-msgstr "找不到 WED"
-
-msgid "Active"
-msgstr "运作中"
-
-msgid "WED attached"
-msgstr "个 WED 已连接"
-
-msgid "Inactive"
-msgstr "未运作"
-
-msgid "Disabled in the Wi-Fi driver"
-msgstr "Wi-Fi 驱动未激活 WED"
-
-msgid "No Wi-Fi device attached"
-msgstr "没有连接 Wi-Fi 设备"
-
-msgid "PPE Engines"
-msgstr "PPE 引擎"
-
-msgid "Packet processing engines"
-msgstr "封包处理引擎"
-
-msgid "PPE debugfs not found"
-msgstr "找不到 PPE debugfs"
-
-msgid "Wi-Fi Acceleration (WED)"
-msgstr "Wi-Fi 加速（WED）"
-
-msgid "Offload Statistics"
-msgstr "卸载统计"
-
-msgid "Bound / total PPE flows"
-msgstr "已绑定 / 全部 PPE 流量"
-
-msgid "CPU Temperature"
-msgstr "CPU 温度"
-
-msgid "cores"
-msgstr "内核"
-
-msgid "%d / %d bound"
-msgstr "已绑定 %d / %d"
-
-msgid "Enabled"
-msgstr "已激活"
-
-msgid "Software only"
-msgstr "仅软件"
-
-msgid "Disabled"
-msgstr "已停用"
-
-msgid "Wi-Fi driver not loaded"
-msgstr "Wi-Fi 驱动未加载"
-
-msgid "Cannot read the Wi-Fi statistics: %s"
-msgstr "无法读取 Wi-Fi 统计：%s"
-
-msgid "Install iw to see the Wi-Fi statistics."
-msgstr "安装 iw 后即可显示 Wi-Fi 统计。"
-
-msgid "Some Wi-Fi data could not be read or saved; the rates may be incomplete."
-msgstr "部分 Wi-Fi 数据无法读取或保存；速率可能不完整。"
-
-msgid "Unknown"
-msgstr "未知"
-
-msgid "Reboot required"
-msgstr "需重新开机"
-
-msgid "Hardware Flow Offload"
-msgstr "硬件流量卸载"
+msgid "saving the CPU settings failed and restoring previous settings also failed"
+msgstr "保存 CPU 设置失败，且恢复先前设置也失败"
 
 msgid "takes effect after a reboot"
-msgstr "重新开机后生效"
+msgstr "重新启动后生效"
 
-msgid "Saved. Reboot the router to apply the Wi-Fi acceleration change."
-msgstr "已保存。请重新开机路由器，让 Wi-Fi 加速设置生效。"
-
-msgid "Bind rate"
-msgstr "绑定率"
-
-msgid "Bound"
-msgstr "已绑定"
-
-msgid "Unbound"
-msgstr "未绑定"
-
-msgid "Total"
-msgstr "总计"
-
-msgid "Version / attached"
-msgstr "版本 / 已连接"
-
-msgid "TX + RX"
-msgstr "收发"
-
-msgid "TX only"
-msgstr "仅发送"
-
-msgid "TX, RX unknown"
-msgstr "发送，接收未知"
-
-msgid "Not attached"
-msgstr "未连接"
-
-msgid "Built %s"
-msgstr "构建于 %s"
-
-msgid "No PPE or WED debugfs entries were found. Is debugfs mounted?"
-msgstr "找不到 PPE 或 WED 的 debugfs 数据，请确认 debugfs 已挂载。"
-
-msgid "MAC Counters (GDM)"
-msgstr "MAC 计数（GDM）"
-
-msgid "Install the ethtool package to show the hardware MAC counters."
-msgstr "安装 ethtool 套件后即可显示硬件 MAC 计数。"
-
-msgid "MAC counters are unavailable."
-msgstr "无法取得 MAC 计数。"
-
-msgid "Hardware MIB counters of each GDM, read with ethtool -S."
-msgstr "各 GDM 的硬件 MIB 计数，来自 ethtool -S。"
-
-msgid "TX packets"
-msgstr "发送封包"
-
-msgid "RX packets"
-msgstr "接收封包"
-
-msgid "RX overflow"
-msgstr "接收溢出"
-
-msgid "FCS errors"
-msgstr "FCS 错误"
-
-msgid "Checksum errors"
-msgstr "校验和错误"
-
-msgid "Flow control frames"
-msgstr "流量控制帧"
-
-msgid "WiFi Band Details"
-msgstr "Wi-Fi 频段详细"
-
-msgid "Per-band airtime efficiency, negotiated and expected rates, and failure counts."
-msgstr "各频段的空口效率、协商与预期速率，以及失败次数。"
-
-msgid "No clients"
-msgstr "没有客户端"
-
-msgid "Poor"
-msgstr "差"
-
-msgid "Fair"
-msgstr "尚可"
-
-msgid "Good"
-msgstr "良好"
-
-msgid "Band"
-msgstr "频段"
-
-msgid "Airtime"
-msgstr "空口效率"
-
-msgid "Status"
-msgstr "状态"
-
-msgid "Clients"
-msgstr "客户端"
-
-msgid "Retry"
-msgstr "重传"
-
-msgid "PHY / Expected"
-msgstr "PHY / 预期"
-
-msgid "Failed"
-msgstr "失败"
-
-msgid "Signal"
-msgstr "信号"
-
-msgid "TX"
-msgstr "发送"
-
-msgid "%d clients"
-msgstr "%d 个客户端"
-
-msgid "PPE table unavailable"
-msgstr "无法取得 PPE 流量表"
-
-msgid "flows"
-msgstr "笔"
-
-msgid "showing"
-msgstr "显示"
-
-msgid "No matching flows"
-msgstr "没有符合的流量"
-
-msgid "Index"
-msgstr "索引"
-
-msgid "State"
-msgstr "状态"
-
-msgid "Type"
-msgstr "类型"
-
-msgid "Original Flow"
-msgstr "原始流"
-
-msgid "New Flow"
-msgstr "转换后"
-
-msgid "Packets"
-msgstr "封包"
-
-msgid "Bytes"
-msgstr "字节"
-
-msgid "All states"
-msgstr "所有状态"
-
-msgid "All types"
-msgstr "所有类型"
-
-msgid "All PPEs"
-msgstr "所有 PPE"
-
-msgid "Previous page"
-msgstr "上一页"
-
-msgid "Next page"
-msgstr "下一页"
-
-msgid "%d–%d of %d"
-msgstr "第 %d–%d 笔，共 %d 笔"
-
-msgid "Clear filters"
-msgstr "清除筛选"
-
-msgid "MediaTek SoC Status"
-msgstr "MediaTek SoC 状态"
-
-msgid "Ethernet Ports"
-msgstr "以太网端口"
-
-msgid "Loading…"
-msgstr "加载中…"
-
-msgid "CPU Frequency"
-msgstr "CPU 频率"
-
-msgid "Hardware Offload"
-msgstr "硬件加速"
-
-msgid "Switches here apply the hardware offload settings for this device."
-msgstr "这里的开关会套用到这台设备的硬件加速设置。"
-
-msgid "PPE Flow Offload Entries"
-msgstr "PPE 流量卸载表"
-
-msgid "Cannot read status from the luci.mtk_wed backend: %s"
-msgstr "无法从 luci.mtk_wed 后端读取状态：%s"
-
-msgid "Updated %s"
-msgstr "更新于 %s"
-
-msgid "Refresh interval"
-msgstr "刷新间隔"
-
-msgid "Every %d s"
-msgstr "每 %d 秒"
-
-msgid "MediaTek SoC"
-msgstr "MediaTek SoC"
-
-msgid "Grant access to MediaTek hardware offload status and settings"
-msgstr "允许访问 MediaTek 硬件加速状态与设置"
-
-
-msgid "ACTIVE"
-msgstr "使用中"
-
-msgid "IDLE"
-msgstr "空闲"
-
-msgid "cannot save the firewall settings"
-msgstr "无法保存防火墙设置"
-
-msgid "saved, but reloading the firewall failed"
-msgstr "已保存，但重新加载防火墙失败"
-
-msgid "cannot read modules.conf"
-msgstr "无法读取 modules.conf"
-
-msgid "cannot write modules.conf"
-msgstr "无法写入 modules.conf"
-
-msgid "cpufreq unavailable"
-msgstr "无法使用 CPU 调频"
-
-msgid "unsupported governor"
-msgstr "不支持的调速器"
+msgid "unknown method"
+msgstr "未知的方法"
 
 msgid "unsupported frequency"
 msgstr "不支持的频率"
 
-msgid "cannot apply the CPU settings"
-msgstr "无法应用 CPU 设置"
+msgid "unsupported governor"
+msgstr "不支持的调度器"
 
-msgid "applied, but saving the CPU settings failed"
-msgstr "已应用，但保存 CPU 设置失败"
-
-msgid "another save is in progress"
-msgstr "另一个保存仍在进行中"
-
-msgid "cannot lock the settings"
-msgstr "无法锁定设置"
-
-msgid "cannot snapshot PPE tables"
-msgstr "无法获取 PPE 流量表"
-
-msgid "cannot read the PPE snapshot"
-msgstr "无法读取 PPE 快照"
-
-msgid "cannot read PPE tables"
-msgstr "无法读取 PPE 流量表"
-
-msgid "iw dev failed"
-msgstr "iw dev 执行失败"
-
-msgid "cannot parse Wi-Fi interfaces"
-msgstr "无法解析 Wi-Fi 接口"
-
-msgid "cannot safely save WED settings with quotes spanning lines or files"
-msgstr "WED 参数的引号跨越行或文件，无法安全保存设置"
-
-msgid "cannot safely save WED settings with oversized configuration lines"
-msgstr "WED 配置行过长，无法安全保存设置"
-
-msgid "cannot prepare the WED settings"
-msgstr "无法准备 WED 设置"
-
-msgid "cannot save the WED settings; previous settings restored"
-msgstr "无法保存 WED 设置；已恢复先前设置"
-
-msgid "cannot save or restore the WED settings; recovery files: %s"
-msgstr "无法保存或恢复 WED 设置；恢复文件：%s"
+msgid "userspace"
+msgstr "用户空间"

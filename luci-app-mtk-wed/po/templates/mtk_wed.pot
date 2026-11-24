@@ -2,46 +2,994 @@ msgid ""
 msgstr ""
 "Content-Type: text/plain; charset=UTF-8\n"
 
-msgid "Port"
-msgstr ""
-
-msgid "Path"
-msgstr ""
-
-msgid "Link"
-msgstr ""
-
-msgid "Speed / Duplex"
-msgstr ""
-
-msgid "RX / TX bytes"
-msgstr ""
-
-msgid "RX / TX packets"
-msgstr ""
-
-msgid "RX / TX errors"
-msgstr ""
-
-msgid "RX / TX dropped"
-msgstr ""
-
-msgid "Switch"
-msgstr ""
-
-msgid "Link up"
-msgstr ""
-
-msgid "Link down"
-msgstr ""
-
-msgid "Port data unavailable"
+msgid "%d / %d bound"
 msgstr ""
 
 msgid "%d / %d up"
 msgstr ""
 
+msgid "%d PPE · %s"
+msgstr ""
+
+msgid "%d band links"
+msgstr ""
+
+msgid "%d clients"
+msgstr ""
+
+msgid "%d err"
+msgstr ""
+
+msgid "%d links"
+msgstr ""
+
+msgid "%d port errors"
+msgstr ""
+
+msgid "%d ports"
+msgstr ""
+
+msgid "%d unique"
+msgstr ""
+
+msgid "%d visible on page"
+msgstr ""
+
+msgid "%d–%d of %d"
+msgstr ""
+
+msgid "%s errors"
+msgstr ""
+
+msgid "%s errors/dropped"
+msgstr ""
+
+msgid "0 errors"
+msgstr ""
+
+msgid "Active"
+msgstr ""
+
+msgid "Airtime"
+msgstr ""
+
+msgid "All PPEs"
+msgstr ""
+
+msgid "All states"
+msgstr ""
+
+msgid "All types"
+msgstr ""
+
+msgid "All-in-One"
+msgstr ""
+
+msgid "Applied %s · %s"
+msgstr ""
+
+msgid "Architecture"
+msgstr ""
+
+msgid "Automatic rollback could not complete. Inspect the recovery directory above on the router before rebooting."
+msgstr ""
+
+msgid "Avg %s"
+msgstr ""
+
+msgid "Avg packet"
+msgstr ""
+
+msgid "Back to Tabs"
+msgstr ""
+
+msgid "Background paused"
+msgstr ""
+
+msgid "Band"
+msgstr ""
+
+msgid "Bidirectional TX and RX wireless hardware offload active with WO firmware."
+msgstr ""
+
+msgid "Bind rate"
+msgstr ""
+
+msgid "Bound"
+msgstr ""
+
+msgid "Built %s"
+msgstr ""
+
+msgid "Bypass / Down"
+msgstr ""
+
+msgid "Bytes"
+msgstr ""
+
+msgid "CPU Frequency & Utilization"
+msgstr ""
+
+msgid "CPU Temperature"
+msgstr ""
+
+msgid "CPU frequency scaling is not available on this board"
+msgstr ""
+
+msgid "CPU settings saved — they will persist after a reboot"
+msgstr ""
+
+msgid "CPU%d sampling"
+msgstr ""
+
+msgid "CPU%d total %s, User/Sys %s, SoftIRQ %s"
+msgstr ""
+
+msgid "Cannot read status from the luci.mtk_wed backend: %s"
+msgstr ""
+
+msgid "Cannot read the Wi-Fi statistics: %s"
+msgstr ""
+
+msgid "Changes apply immediately and persist after reboot"
+msgstr ""
+
+msgid "Checksum errors"
+msgstr ""
+
+msgid "Clear filters"
+msgstr ""
+
+msgid "Clear highlight"
+msgstr ""
+
+msgid "Clear search"
+msgstr ""
+
+msgid "Click any row to inspect L2 MAC and NAT details"
+msgstr ""
+
+msgid "Clients"
+msgstr ""
+
+msgid "Clock / Temperature"
+msgstr ""
+
+msgid "Close"
+msgstr ""
+
+msgid "Collapse"
+msgstr ""
+
+msgid "Configured"
+msgstr ""
+
+msgid "Connection stale"
+msgstr ""
+
+msgid "Copied"
+msgstr ""
+
+msgid "Copied %s"
+msgstr ""
+
+msgid "Copy"
+msgstr ""
+
+msgid "Copy L2 MAC"
+msgstr ""
+
+msgid "Copy New Flow"
+msgstr ""
+
+msgid "Copy Original Flow"
+msgstr ""
+
+msgid "Copy Summary"
+msgstr ""
+
+msgid "Copy path"
+msgstr ""
+
+msgid "Core Count"
+msgstr ""
+
+msgid "DSA Switch RJ45"
+msgstr ""
+
+msgid "Direct"
+msgstr ""
+
+msgid "Direct GDM"
+msgstr ""
+
+msgid "Direct Ports (GDM)"
+msgstr ""
+
+msgid "Direct RJ45"
+msgstr ""
+
+msgid "Direct SFP+ Ports (GDM)"
+msgstr ""
+
+msgid "Disabled"
+msgstr ""
+
+msgid "Disabled (N)"
+msgstr ""
+
+msgid "Dismiss"
+msgstr ""
+
+msgid "Driver module"
+msgstr ""
+
+msgid "Enabled"
+msgstr ""
+
+msgid "Enabled (Y)"
+msgstr ""
+
+msgid "Error"
+msgstr ""
+
+msgid "Error: %s"
+msgstr ""
+
+msgid "Errors / Dropped"
+msgstr ""
+
+msgid "Ethernet Ports"
+msgstr ""
+
+msgid "Ethernet Ports & GDM MAC Counters"
+msgstr ""
+
+msgid "Every %d s"
+msgstr ""
+
+msgid "FCS errors"
+msgstr ""
+
+msgid "Failed"
+msgstr ""
+
+msgid "Failed to save WED settings"
+msgstr ""
+
+msgid "Fair"
+msgstr ""
+
+msgid "Filter %s flows"
+msgstr ""
+
+msgid "Filter flows on page"
+msgstr ""
+
+msgid "Fixed clock"
+msgstr ""
+
+msgid "Flow control frames"
+msgstr ""
+
+msgid "Flow summary"
+msgstr ""
+
+msgid "Freeze"
+msgstr ""
+
+msgid "Frequency History"
+msgstr ""
+
+msgid "Frozen"
+msgstr ""
+
+msgid "Full duplex"
+msgstr ""
+
+msgid "Good"
+msgstr ""
+
+msgid "Governor"
+msgstr ""
+
+msgid "Grant access to MediaTek hardware offload status and settings"
+msgstr ""
+
+msgid "HW offload active · Elevated SoftIRQ"
+msgstr ""
+
+msgid "HW offload active · Low SoftIRQ"
+msgstr ""
+
+msgid "Half duplex"
+msgstr ""
+
+msgid "Hardware Datapath & Controls"
+msgstr ""
+
+msgid "Hardware Datapath Topology"
+msgstr ""
+
+msgid "Hardware Datapath Topology & Controls"
+msgstr ""
+
+msgid "Hardware Flow Offload"
+msgstr ""
+
+msgid "Hardware MIB Counters (ethtool -S)"
+msgstr ""
+
+msgid "Hardware MIB counters of each GDM, read with ethtool -S."
+msgstr ""
+
+msgid "Hardware Offload"
+msgstr ""
+
+msgid "Hardware Offload Gauges"
+msgstr ""
+
+msgid "Hardware flow offload enabled"
+msgstr ""
+
+msgid "Hardware offload"
+msgstr ""
+
+msgid "Hardware offload active"
+msgstr ""
+
+msgid "Hardware offload optimal"
+msgstr ""
+
+msgid "Hide"
+msgstr ""
+
+msgid "Hide link details"
+msgstr ""
+
+msgid "High Temp"
+msgstr ""
+
+msgid "Hover to inspect"
+msgstr ""
+
+msgid "Incomplete MLO sampling"
+msgstr ""
+
+msgid "Index"
+msgstr ""
+
+msgid "Inspect %s band"
+msgstr ""
+
+msgid "Inspect L2 MAC →"
+msgstr ""
+
+msgid "Inspector"
+msgstr ""
+
+msgid "Install iw"
+msgstr ""
+
+msgid "Install iw to view Wi-Fi statistics."
+msgstr ""
+
+msgid "Install the ethtool package to show the hardware MAC counters."
+msgstr ""
+
+msgid "Instant"
+msgstr ""
+
+msgid "Interface type"
+msgstr ""
+
+msgid "Interfaces"
+msgstr ""
+
+msgid "L2 Ethernet (eth MAC)"
+msgstr ""
+
+msgid "Last complete per-band TX rates are preserved."
+msgstr ""
+
+msgid "Link down"
+msgstr ""
+
+msgid "Link up"
+msgstr ""
+
+msgid "Live (Left: MHz · Right: °C)"
+msgstr ""
+
+msgid "Live RX"
+msgstr ""
+
+msgid "Live TX"
+msgstr ""
+
+msgid "Live Throughput & Port Counters"
+msgstr ""
+
+msgid "Live · 5s"
+msgstr ""
+
+msgid "Load %s"
+msgstr ""
+
+msgid "Loading…"
+msgstr ""
+
+msgid "MAC Counters (GDM)"
+msgstr ""
+
+msgid "MAC counters are unavailable."
+msgstr ""
+
+msgid "MIB N/A"
+msgstr ""
+
+msgid "MIB OK"
+msgstr ""
+
+msgid "MIB errors"
+msgstr ""
+
+msgid "MIB unavailable"
+msgstr ""
+
+msgid "MLO devices connect across multiple bands simultaneously, so summed band links (%d) exceed unique stations (%d)."
+msgstr ""
+
+msgid "MLO · %d links"
+msgstr ""
+
+msgid "Max"
+msgstr ""
+
+msgid "Max %s"
+msgstr ""
+
+msgid "Max Freq"
+msgstr ""
+
+msgid "MediaTek SoC"
+msgstr ""
+
+msgid "MediaTek SoC Status"
+msgstr ""
+
+msgid "Mode"
+msgstr ""
+
+msgid "NAT"
+msgstr ""
+
+msgid "New / NAT Flow"
+msgstr ""
+
+msgid "New Flow"
+msgstr ""
+
+msgid "Next page"
+msgstr ""
+
+msgid "No NAT translation (or unbound)"
+msgstr ""
+
+msgid "No PPE or WED debugfs entries were found. Is debugfs mounted?"
+msgstr ""
+
+msgid "No WED instances found"
+msgstr ""
+
+msgid "No WO firmware"
+msgstr ""
+
+msgid "No Wi-Fi"
+msgstr ""
+
+msgid "No Wi-Fi device attached to this WED instance."
+msgstr ""
+
+msgid "No Wi-Fi hardware"
+msgstr ""
+
+msgid "No active AP"
+msgstr ""
+
+msgid "No active bands"
+msgstr ""
+
+msgid "No clients"
+msgstr ""
+
+msgid "No cpufreq OPP"
+msgstr ""
+
+msgid "No ethtool"
+msgstr ""
+
+msgid "No iw"
+msgstr ""
+
+msgid "No matching flows"
+msgstr ""
+
+msgid "Nominal"
+msgstr ""
+
+msgid "Not attached"
+msgstr ""
+
+msgid "Now"
+msgstr ""
+
+msgid "Offload Direction"
+msgstr ""
+
+msgid "Offload Statistics"
+msgstr ""
+
+msgid "Offload established NAT and routed flows to PPE hardware (flow_offloading_hw)."
+msgstr ""
+
+msgid "Offload wireless packets through WED and WO firmware to reduce CPU load."
+msgstr ""
+
+msgid "Open Flow Table"
+msgstr ""
+
+msgid "Original Flow"
+msgstr ""
+
+msgid "Original Flow (5-Tuple · RFC 5952)"
+msgstr ""
+
+msgid "Overview"
+msgstr ""
+
+msgid "PHY / Expected"
+msgstr ""
+
+msgid "PORTS"
+msgstr ""
+
+msgid "PPE Bind Rate"
+msgstr ""
+
+msgid "PPE Engines"
+msgstr ""
+
+msgid "PPE Flow Offload Entries"
+msgstr ""
+
+msgid "PPE Flows"
+msgstr ""
+
+msgid "PPE debugfs not found"
+msgstr ""
+
+msgid "PPE table unavailable"
+msgstr ""
+
+msgid "Packets"
+msgstr ""
+
+msgid "Partial"
+msgstr ""
+
+msgid "Partial sampling · MLO incomplete"
+msgstr ""
+
+msgid "Path"
+msgstr ""
+
+msgid "Pause"
+msgstr ""
+
+msgid "Paused"
+msgstr ""
+
+msgid "Per-Core CPU Utilization"
+msgstr ""
+
+msgid "Poor"
+msgstr ""
+
+msgid "Port"
+msgstr ""
+
+msgid "Port Specifications & Counters"
+msgstr ""
+
+msgid "Port Statistics"
+msgstr ""
+
+msgid "Port and GDM views"
+msgstr ""
+
+msgid "Port counters only"
+msgstr ""
+
+msgid "Port data unavailable"
+msgstr ""
+
+msgid "Ports & GDM"
+msgstr ""
+
+msgid "Previous page"
+msgstr ""
+
+msgid "Quick filter PPE:"
+msgstr ""
+
+msgid "RX / TX bytes"
+msgstr ""
+
+msgid "RX / TX dropped"
+msgstr ""
+
+msgid "RX / TX errors"
+msgstr ""
+
+msgid "RX / TX packets"
+msgstr ""
+
+msgid "RX bytes"
+msgstr ""
+
+msgid "RX bytes / packets"
+msgstr ""
+
+msgid "RX long errors"
+msgstr ""
+
+msgid "RX overflow"
+msgstr ""
+
+msgid "RX packets"
+msgstr ""
+
+msgid "RX short errors"
+msgstr ""
+
+msgid "Read-only"
+msgstr ""
+
+msgid "Read-only access; settings cannot be modified"
+msgstr ""
+
+msgid "Reboot required"
+msgstr ""
+
+msgid "Recovery path"
+msgstr ""
+
+msgid "Refresh"
+msgstr ""
+
+msgid "Refresh interval"
+msgstr ""
+
+msgid "Refreshing…"
+msgstr ""
+
+msgid "Resume"
+msgstr ""
+
+msgid "Retry"
+msgstr ""
+
+msgid "Revert"
+msgstr ""
+
+msgid "Reverting…"
+msgstr ""
+
+msgid "SFP+ OPEN"
+msgstr ""
+
+msgid "SFP+ Optical"
+msgstr ""
+
+msgid "SW Forward"
+msgstr ""
+
+msgid "Sampling…"
+msgstr ""
+
+msgid "Save"
+msgstr ""
+
+msgid "Saved. Reboot the router to apply the Wi-Fi acceleration change."
+msgstr ""
+
+msgid "Saving…"
+msgstr ""
+
+msgid "Search IP, port, MAC, VLAN, index…"
+msgstr ""
+
+msgid "Select any physical port to expand live throughput, GDM → PPE path, and hardware MAC MIB counters."
+msgstr ""
+
+msgid "Show link details"
+msgstr ""
+
+msgid "Signal"
+msgstr ""
+
+msgid "Snapshot %ds ago"
+msgstr ""
+
+msgid "Software bypass"
+msgstr ""
+
+msgid "Software forwarding · Elevated SoftIRQ"
+msgstr ""
+
+msgid "Software forwarding · Low SoftIRQ"
+msgstr ""
+
+msgid "Software forwarding · PPE bypassed"
+msgstr ""
+
+msgid "Software offload: %s · PPE engines: %d"
+msgstr ""
+
+msgid "Software only"
+msgstr ""
+
+msgid "Some Wi-Fi data could not be read or saved; the rates may be incomplete."
+msgstr ""
+
+msgid "Speed / Duplex"
+msgstr ""
+
+msgid "State"
+msgstr ""
+
+msgid "Status"
+msgstr ""
+
+msgid "Status views"
+msgstr ""
+
+msgid "Switch"
+msgstr ""
+
+msgid "Switched to software forwarding"
+msgstr ""
+
+msgid "Switches here apply the hardware offload settings for this device."
+msgstr ""
+
+msgid "System → Reboot"
+msgstr ""
+
+msgid "TX"
+msgstr ""
+
+msgid "TX + RX"
+msgstr ""
+
+msgid "TX bytes"
+msgstr ""
+
+msgid "TX bytes / packets"
+msgstr ""
+
+msgid "TX collisions"
+msgstr ""
+
+msgid "TX offload active; RX buffer manager register could not be read."
+msgstr ""
+
+msgid "TX only"
+msgstr ""
+
+msgid "TX packets"
+msgstr ""
+
+msgid "TX skip"
+msgstr ""
+
+msgid "TX, RX unknown"
+msgstr ""
+
+msgid "TX-only wireless hardware offload active; RX frames are handled by CPU DMA."
+msgstr ""
+
+msgid "The switch has been restored to the current saved configuration."
+msgstr ""
+
+msgid "To avoid corrupting module files, writing was aborted. Check /etc/modules.conf, /etc/modules-boot.d/, and /etc/modules.d/ so quoted values stay on one line under 511 characters."
+msgstr ""
+
+msgid "Try again"
+msgstr ""
+
+msgid "Type"
+msgstr ""
+
+msgid "Unable to read hardware MAC counters for this GDM."
+msgstr ""
+
+msgid "Unavailable"
+msgstr ""
+
+msgid "Unbound"
+msgstr ""
+
+msgid "Unfreeze"
+msgstr ""
+
+msgid "Unknown"
+msgstr ""
+
+msgid "Unknown speed"
+msgstr ""
+
+msgid "User/Sys"
+msgstr ""
+
+msgid "Version"
+msgstr ""
+
+msgid "WED WIRELESS"
+msgstr ""
+
+msgid "WED attached"
+msgstr ""
+
+msgid "WED configuration reverted to active state"
+msgstr ""
+
+msgid "WED reboot required"
+msgstr ""
+
+msgid "WI-FI BANDS"
+msgstr ""
+
+msgid "WO firmware"
+msgstr ""
+
+msgid "Warm"
+msgstr ""
+
+msgid "Wi-Fi & MLO"
+msgstr ""
+
+msgid "Wi-Fi Acceleration (WED)"
+msgstr ""
+
+msgid "Wi-Fi Acceleration (WED) setting changed — reboot required"
+msgstr ""
+
+msgid "Wi-Fi Airtime Efficiency"
+msgstr ""
+
+msgid "Wi-Fi Band Details"
+msgstr ""
+
+msgid "Wi-Fi driver not loaded"
+msgstr ""
+
+msgid "Wi-Fi stats unavailable"
+msgstr ""
+
+msgid "Wired offload only"
+msgstr ""
+
+msgid "another save is in progress"
+msgstr ""
+
+msgid "cannot apply the CPU settings"
+msgstr ""
+
+msgid "cannot determine the firewall reload trigger"
+msgstr ""
+
+msgid "cannot lock the settings"
+msgstr ""
+
+msgid "cannot parse Wi-Fi interfaces"
+msgstr ""
+
+msgid "cannot prepare the WED settings"
+msgstr ""
+
+msgid "cannot read PPE tables"
+msgstr ""
+
+msgid "cannot read the PPE snapshot"
+msgstr ""
+
+msgid "cannot safely save WED settings with oversized configuration lines"
+msgstr ""
+
+msgid "cannot safely save WED settings with quotes spanning lines or files"
+msgstr ""
+
+msgid "cannot save or restore the WED settings; recovery files: %s"
+msgstr ""
+
+msgid "cannot save the CPU settings; previous settings restored"
+msgstr ""
+
+msgid "cannot save the WED settings; previous settings restored"
+msgstr ""
+
+msgid "cannot save the firewall settings"
+msgstr ""
+
+msgid "cannot snapshot PPE tables"
+msgstr ""
+
+msgid "cannot verify the committed firewall settings"
+msgstr ""
+
 msgid "conservative"
+msgstr ""
+
+msgid "cores"
+msgstr ""
+
+msgid "could not apply the saved flow offload setting"
+msgstr ""
+
+msgid "could not verify firewall transaction rollback"
+msgstr ""
+
+msgid "cpufreq unavailable"
+msgstr ""
+
+msgid "enabled must be 0 or 1"
+msgstr ""
+
+msgid "ethtool not installed"
+msgstr ""
+
+msgid "firewall reload failed and reverting the setting also failed"
+msgstr ""
+
+msgid "firewall reload failed; flow offload setting reverted"
+msgstr ""
+
+msgid "firewall reload failed; flow offload setting was modified concurrently and not reverted"
+msgstr ""
+
+msgid "firewall settings are locked by another pending apply"
+msgstr ""
+
+msgid "firewall settings restored; could not verify firewall reload"
+msgstr ""
+
+msgid "firewall settings verification failed; previous settings restored"
+msgstr ""
+
+msgid "firewall transaction confirmation failed; previous settings restored"
+msgstr ""
+
+msgid "flows"
+msgstr ""
+
+msgid "invalid interval"
+msgstr ""
+
+msgid "invalid page"
+msgstr ""
+
+msgid "invalid ppe"
+msgstr ""
+
+msgid "invalid state"
+msgstr ""
+
+msgid "invalid type"
+msgstr ""
+
+msgid "iw dev failed"
 msgstr ""
 
 msgid "ondemand"
@@ -53,411 +1001,20 @@ msgstr ""
 msgid "powersave"
 msgstr ""
 
-msgid "userspace"
-msgstr ""
-
-msgid "CPU Info"
-msgstr ""
-
-msgid "CPU model / temperature"
-msgstr ""
-
-msgid "Model"
-msgstr ""
-
-msgid "Architecture"
-msgstr ""
-
-msgid "Core Count"
-msgstr ""
-
-msgid "Temperature"
-msgstr ""
-
-msgid "Error: %s"
-msgstr ""
-
-msgid "CPU settings saved — they will persist after a reboot"
-msgstr ""
-
-msgid "Save"
-msgstr ""
-
-msgid "Saving…"
-msgstr ""
-
-msgid "CPU Control"
-msgstr ""
-
-msgid "Governor"
-msgstr ""
-
-msgid "Max Freq"
-msgstr ""
-
-msgid "CPU frequency scaling is not available on this board"
-msgstr ""
-
-msgid "No data"
-msgstr ""
-
-msgid "Frequency History"
-msgstr ""
-
-msgid "Not available"
-msgstr ""
-
-msgid "No WED instances found"
-msgstr ""
-
-msgid "Active"
-msgstr ""
-
-msgid "WED attached"
-msgstr ""
-
-msgid "Inactive"
-msgstr ""
-
-msgid "Disabled in the Wi-Fi driver"
-msgstr ""
-
-msgid "No Wi-Fi device attached"
-msgstr ""
-
-msgid "PPE Engines"
-msgstr ""
-
-msgid "Packet processing engines"
-msgstr ""
-
-msgid "PPE debugfs not found"
-msgstr ""
-
-msgid "Wi-Fi Acceleration (WED)"
-msgstr ""
-
-msgid "Offload Statistics"
-msgstr ""
-
-msgid "Bound / total PPE flows"
-msgstr ""
-
-msgid "CPU Temperature"
-msgstr ""
-
-msgid "cores"
-msgstr ""
-
-msgid "%d / %d bound"
-msgstr ""
-
-msgid "Enabled"
-msgstr ""
-
-msgid "Software only"
-msgstr ""
-
-msgid "Disabled"
-msgstr ""
-
-msgid "Wi-Fi driver not loaded"
-msgstr ""
-
-msgid "Cannot read the Wi-Fi statistics: %s"
-msgstr ""
-
-msgid "Install iw to see the Wi-Fi statistics."
-msgstr ""
-
-msgid "Some Wi-Fi data could not be read or saved; the rates may be incomplete."
-msgstr ""
-
-msgid "Unknown"
-msgstr ""
-
-msgid "Reboot required"
-msgstr ""
-
-msgid "Hardware Flow Offload"
+msgid "saving the CPU settings failed and restoring previous settings also failed"
 msgstr ""
 
 msgid "takes effect after a reboot"
 msgstr ""
 
-msgid "Saved. Reboot the router to apply the Wi-Fi acceleration change."
-msgstr ""
-
-msgid "Bind rate"
-msgstr ""
-
-msgid "Bound"
-msgstr ""
-
-msgid "Unbound"
-msgstr ""
-
-msgid "Total"
-msgstr ""
-
-msgid "Version / attached"
-msgstr ""
-
-msgid "TX + RX"
-msgstr ""
-
-msgid "TX only"
-msgstr ""
-
-msgid "TX, RX unknown"
-msgstr ""
-
-msgid "Not attached"
-msgstr ""
-
-msgid "Built %s"
-msgstr ""
-
-msgid "No PPE or WED debugfs entries were found. Is debugfs mounted?"
-msgstr ""
-
-msgid "MAC Counters (GDM)"
-msgstr ""
-
-msgid "Install the ethtool package to show the hardware MAC counters."
-msgstr ""
-
-msgid "MAC counters are unavailable."
-msgstr ""
-
-msgid "Hardware MIB counters of each GDM, read with ethtool -S."
-msgstr ""
-
-msgid "TX packets"
-msgstr ""
-
-msgid "RX packets"
-msgstr ""
-
-msgid "RX overflow"
-msgstr ""
-
-msgid "FCS errors"
-msgstr ""
-
-msgid "Checksum errors"
-msgstr ""
-
-msgid "Flow control frames"
-msgstr ""
-
-msgid "WiFi Band Details"
-msgstr ""
-
-msgid "Per-band airtime efficiency, negotiated and expected rates, and failure counts."
-msgstr ""
-
-msgid "No clients"
-msgstr ""
-
-msgid "Poor"
-msgstr ""
-
-msgid "Fair"
-msgstr ""
-
-msgid "Good"
-msgstr ""
-
-msgid "Band"
-msgstr ""
-
-msgid "Airtime"
-msgstr ""
-
-msgid "Status"
-msgstr ""
-
-msgid "Clients"
-msgstr ""
-
-msgid "Retry"
-msgstr ""
-
-msgid "PHY / Expected"
-msgstr ""
-
-msgid "Failed"
-msgstr ""
-
-msgid "Signal"
-msgstr ""
-
-msgid "TX"
-msgstr ""
-
-msgid "%d clients"
-msgstr ""
-
-msgid "PPE table unavailable"
-msgstr ""
-
-msgid "flows"
-msgstr ""
-
-msgid "showing"
-msgstr ""
-
-msgid "No matching flows"
-msgstr ""
-
-msgid "Index"
-msgstr ""
-
-msgid "State"
-msgstr ""
-
-msgid "Type"
-msgstr ""
-
-msgid "Original Flow"
-msgstr ""
-
-msgid "New Flow"
-msgstr ""
-
-msgid "Packets"
-msgstr ""
-
-msgid "Bytes"
-msgstr ""
-
-msgid "All states"
-msgstr ""
-
-msgid "All types"
-msgstr ""
-
-msgid "All PPEs"
-msgstr ""
-
-msgid "Previous page"
-msgstr ""
-
-msgid "Next page"
-msgstr ""
-
-msgid "%d–%d of %d"
-msgstr ""
-
-msgid "Clear filters"
-msgstr ""
-
-msgid "MediaTek SoC Status"
-msgstr ""
-
-msgid "Ethernet Ports"
-msgstr ""
-
-msgid "Loading…"
-msgstr ""
-
-msgid "CPU Frequency"
-msgstr ""
-
-msgid "Hardware Offload"
-msgstr ""
-
-msgid "Switches here apply the hardware offload settings for this device."
-msgstr ""
-
-msgid "PPE Flow Offload Entries"
-msgstr ""
-
-msgid "Cannot read status from the luci.mtk_wed backend: %s"
-msgstr ""
-
-msgid "Updated %s"
-msgstr ""
-
-msgid "Refresh interval"
-msgstr ""
-
-msgid "Every %d s"
-msgstr ""
-
-msgid "MediaTek SoC"
-msgstr ""
-
-msgid "Grant access to MediaTek hardware offload status and settings"
-msgstr ""
-
-
-msgid "ACTIVE"
-msgstr ""
-
-msgid "IDLE"
-msgstr ""
-
-msgid "cannot save the firewall settings"
-msgstr ""
-
-msgid "saved, but reloading the firewall failed"
-msgstr ""
-
-msgid "cannot read modules.conf"
-msgstr ""
-
-msgid "cannot write modules.conf"
-msgstr ""
-
-msgid "cpufreq unavailable"
-msgstr ""
-
-msgid "unsupported governor"
+msgid "unknown method"
 msgstr ""
 
 msgid "unsupported frequency"
 msgstr ""
 
-msgid "cannot apply the CPU settings"
+msgid "unsupported governor"
 msgstr ""
 
-msgid "applied, but saving the CPU settings failed"
-msgstr ""
-
-msgid "another save is in progress"
-msgstr ""
-
-msgid "cannot lock the settings"
-msgstr ""
-
-msgid "cannot snapshot PPE tables"
-msgstr ""
-
-msgid "cannot read the PPE snapshot"
-msgstr ""
-
-msgid "cannot read PPE tables"
-msgstr ""
-
-msgid "iw dev failed"
-msgstr ""
-
-msgid "cannot parse Wi-Fi interfaces"
-msgstr ""
-
-msgid "cannot safely save WED settings with quotes spanning lines or files"
-msgstr ""
-
-msgid "cannot safely save WED settings with oversized configuration lines"
-msgstr ""
-
-msgid "cannot prepare the WED settings"
-msgstr ""
-
-msgid "cannot save the WED settings; previous settings restored"
-msgstr ""
-
-msgid "cannot save or restore the WED settings; recovery files: %s"
+msgid "userspace"
 msgstr ""
