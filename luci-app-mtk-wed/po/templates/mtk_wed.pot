@@ -47,6 +47,9 @@ msgstr ""
 msgid "0 errors"
 msgstr ""
 
+msgid "A WED settings save is still in progress on the router. Wait a moment and refresh before rebooting."
+msgstr ""
+
 msgid "Active"
 msgstr ""
 
@@ -164,6 +167,18 @@ msgstr ""
 msgid "Configured"
 msgstr ""
 
+msgid "Configured disabled"
+msgstr ""
+
+msgid "Configured disabled, rule still active"
+msgstr ""
+
+msgid "Configured enabled"
+msgstr ""
+
+msgid "Configured enabled, rule not active"
+msgstr ""
+
 msgid "Connection stale"
 msgstr ""
 
@@ -194,6 +209,12 @@ msgstr ""
 msgid "Core Count"
 msgstr ""
 
+msgid "Could not re-read the saved WED configuration after the interrupted request. Refresh the page before rebooting."
+msgstr ""
+
+msgid "Could not verify the saved WED configuration. Inspect /etc/modules.conf and /etc/modules.d/ before rebooting."
+msgstr ""
+
 msgid "DSA Switch RJ45"
 msgstr ""
 
@@ -222,6 +243,9 @@ msgid "Dismiss"
 msgstr ""
 
 msgid "Driver module"
+msgstr ""
+
+msgid "Elevated SoftIRQ"
 msgstr ""
 
 msgid "Enabled"
@@ -410,6 +434,9 @@ msgstr ""
 msgid "Live Throughput & Port Counters"
 msgstr ""
 
+msgid "Live fw4 rule"
+msgstr ""
+
 msgid "Live · 5s"
 msgstr ""
 
@@ -417,6 +444,9 @@ msgid "Load %s"
 msgstr ""
 
 msgid "Loading…"
+msgstr ""
+
+msgid "Low SoftIRQ"
 msgstr ""
 
 msgid "MAC Counters (GDM)"
@@ -533,6 +563,9 @@ msgstr ""
 msgid "Offload established NAT and routed flows to PPE hardware (flow_offloading_hw)."
 msgstr ""
 
+msgid "Offload status unknown"
+msgstr ""
+
 msgid "Offload wireless packets through WED and WO firmware to reduce CPU load."
 msgstr ""
 
@@ -617,6 +650,9 @@ msgstr ""
 msgid "Ports & GDM"
 msgstr ""
 
+msgid "Previous WED save requires manual recovery"
+msgstr ""
+
 msgid "Previous page"
 msgstr ""
 
@@ -653,6 +689,18 @@ msgstr ""
 msgid "RX short errors"
 msgstr ""
 
+msgid "Re-read confirmed the saved WED configuration still matches the previous state."
+msgstr ""
+
+msgid "Re-read found the saved WED configuration changed on disk. Review the current switch state before rebooting."
+msgstr ""
+
+msgid "Re-read found the saved WED configuration is disabled on disk (previous saved state was unknown). Review the current switch state before rebooting."
+msgstr ""
+
+msgid "Re-read found the saved WED configuration is enabled on disk (previous saved state was unknown). Review the current switch state before rebooting."
+msgstr ""
+
 msgid "Read-only"
 msgstr ""
 
@@ -686,6 +734,12 @@ msgstr ""
 msgid "Reverting…"
 msgstr ""
 
+msgid "Rule active (config unknown)"
+msgstr ""
+
+msgid "Rule inactive (config unknown)"
+msgstr ""
+
 msgid "SFP+ OPEN"
 msgstr ""
 
@@ -699,6 +753,12 @@ msgid "Sampling…"
 msgstr ""
 
 msgid "Save"
+msgstr ""
+
+msgid "Saved config"
+msgstr ""
+
+msgid "Saved config: %s · Live fw4 rule: %s"
 msgstr ""
 
 msgid "Saved. Reboot the router to apply the Wi-Fi acceleration change."
@@ -725,6 +785,9 @@ msgstr ""
 msgid "Software bypass"
 msgstr ""
 
+msgid "Software configured, rule not active"
+msgstr ""
+
 msgid "Software forwarding · Elevated SoftIRQ"
 msgstr ""
 
@@ -738,6 +801,12 @@ msgid "Software offload: %s · PPE engines: %d"
 msgstr ""
 
 msgid "Software only"
+msgstr ""
+
+msgid "Software only (config unknown)"
+msgstr ""
+
+msgid "Software only (configured)"
 msgstr ""
 
 msgid "Some Wi-Fi data could not be read or saved; the rates may be incomplete."
@@ -800,6 +869,15 @@ msgstr ""
 msgid "TX-only wireless hardware offload active; RX frames are handled by CPU DMA."
 msgstr ""
 
+msgid "The CPU settings update could not be confirmed."
+msgstr ""
+
+msgid "The WED settings update could not be confirmed."
+msgstr ""
+
+msgid "The request was interrupted before confirmation. Re-reading the saved WED configuration..."
+msgstr ""
+
 msgid "The switch has been restored to the current saved configuration."
 msgstr ""
 
@@ -846,6 +924,9 @@ msgid "WED configuration reverted to active state"
 msgstr ""
 
 msgid "WED reboot required"
+msgstr ""
+
+msgid "WED recovery required"
 msgstr ""
 
 msgid "WI-FI BANDS"

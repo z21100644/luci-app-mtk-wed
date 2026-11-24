@@ -399,16 +399,100 @@ function isNoAp(wf) {
 		(!Array.isArray(wf.bands) || !wf.bands.length) && wf.complete !== false);
 }
 
+function triBool(v) {
+	return v === true ? true : v === false ? false : null;
+}
+
+function flowLabelPair(sw, hw) {
+	if (hw === true) return _('Enabled');
+	if (sw === true) return _('Software only');
+	if (hw === false) return _('Disabled');
+	return _('Unknown');
+}
+
 function flowState(st) {
 	var fo = (st && st.flow_offload) || {};
-	return fo.hardware ? { on: true, kind: 'ok', text: _('Enabled') }
-		: fo.software ? { on: false, kind: 'info', text: _('Software only') }
-			: { on: false, kind: '', text: _('Disabled') };
+	var cfgSw = triBool(fo.software);
+	var cfgHw = triBool(fo.hardware);
+	var liveSw = triBool(fo.live_software);
+	var liveHw = triBool(fo.live_hardware);
+	var hwActive = liveHw;
+	var switchOn = cfgHw === true;
+	var kind = '', text = _('Unknown'), mismatch = false, unknown = false;
+
+	if (cfgHw === null && liveHw === null) {
+		kind = '';
+		text = _('Unknown');
+		unknown = true;
+	} else if (liveHw !== null) {
+		if (cfgHw === true && liveHw === true) {
+			kind = 'ok';
+			text = _('Enabled');
+		} else if (cfgHw === true && liveHw === false) {
+			kind = 'warn';
+			text = _('Configured enabled, rule not active');
+			mismatch = true;
+		} else if (cfgHw === false && liveHw === true) {
+			kind = 'warn';
+			text = _('Configured disabled, rule still active');
+			mismatch = true;
+		} else if (cfgHw === null && liveHw === true) {
+			kind = 'warn';
+			text = _('Rule active (config unknown)');
+			mismatch = true;
+		} else if (cfgHw === null && liveHw === false) {
+			kind = '';
+			text = liveSw === true ? _('Software only (config unknown)') : _('Rule inactive (config unknown)');
+			unknown = true;
+		} else if (cfgSw === true && liveSw === false) {
+			kind = 'warn';
+			text = _('Software configured, rule not active');
+			mismatch = true;
+		} else if (liveSw === true) {
+			kind = 'info';
+			text = _('Software only');
+		} else {
+			kind = '';
+			text = _('Disabled');
+		}
+	} else {
+		if (cfgHw === true) {
+			kind = '';
+			text = _('Configured enabled');
+		} else if (cfgSw === true) {
+			kind = 'info';
+			text = _('Software only (configured)');
+		} else {
+			kind = '';
+			text = _('Configured disabled');
+		}
+	}
+
+	var detail = _('Saved config: %s · Live fw4 rule: %s').format(
+		flowLabelPair(cfgSw, cfgHw),
+		liveHw !== null ? flowLabelPair(liveSw, liveHw) : _('Unavailable')
+	);
+
+	return {
+		on: switchOn,
+		hwActive: hwActive,
+		cfgSw: cfgSw,
+		cfgHw: cfgHw,
+		liveSw: liveSw,
+		liveHw: liveHw,
+		mismatch: mismatch,
+		unknown: unknown,
+		kind: kind,
+		text: text,
+		detail: detail
+	};
 }
 
 function wedState(st) {
 	var wp = (st && st.wed_param) || {};
 	var active = wp.active, conf = wp.configured;
+	if (wp.saving === true)
+		return { on: !!active, kind: 'info', code: 'saving', text: _('Saving…') };
 	if (active === null || active === undefined)
 		return { on: !!conf, kind: '', code: 'unloaded', text: _('Wi-Fi driver not loaded') };
 	if (conf !== null && conf !== undefined && conf !== active)
@@ -565,6 +649,7 @@ return view.extend({
 			bgPaused: !!document.hidden,
 			refreshing: false,
 			settingsGen: 0,
+			wedGen: 0,
 			hwBusy: false,
 			wedBusy: false,
 			wedError: null,
@@ -614,6 +699,7 @@ return view.extend({
 		var ppeNeedLive = false;
 		var bootTimer = null;
 		var coreFastTimer = null;
+		var wedSettleTimer = null;
 		var ageTimer = null;
 
 		function byId(id) {
@@ -927,9 +1013,12 @@ return view.extend({
 				} else if (!r || r.result !== 'ok' || r.enabled !== val) {
 					notifyError(_('cannot verify the committed firewall settings'));
 				} else {
-					if (app.lastStatus.flow_offload) {
-						app.lastStatus.flow_offload.hardware = !!val;
-						if (val) app.lastStatus.flow_offload.software = true;
+					if (!app.lastStatus.flow_offload) app.lastStatus.flow_offload = {};
+					app.lastStatus.flow_offload.hardware = !!val;
+					if (val) app.lastStatus.flow_offload.software = true;
+					if (app.lastStatus.flow_offload.live_hardware !== null && app.lastStatus.flow_offload.live_hardware !== undefined) {
+						app.lastStatus.flow_offload.live_hardware = !!val;
+						if (val) app.lastStatus.flow_offload.live_software = true;
 					}
 					toast.show(val ? _('Hardware flow offload enabled') : _('Switched to software forwarding'));
 				}
@@ -944,18 +1033,104 @@ return view.extend({
 			});
 		}
 
+		function clearWedSettleTimer() {
+			if (wedSettleTimer) {
+				clearTimeout(wedSettleTimer);
+				wedSettleTimer = null;
+			}
+		}
+
+		function applyWedRereadOutcome(errObj, nextWp, prevConfigured) {
+			if (!errObj) return;
+			var nextConf = nextWp ? triBool(nextWp.configured) : null;
+			var nextRecPath = (nextWp && nextWp.recovery_path) ? String(nextWp.recovery_path) : '';
+			errObj.pendingSave = false;
+			if (nextRecPath) {
+				errObj.recoveryPath = nextRecPath;
+				errObj.hint = _('Automatic rollback could not complete. Inspect the recovery directory above on the router before rebooting.');
+			} else if (nextConf === null) {
+				errObj.hint = _('Could not verify the saved WED configuration. Inspect /etc/modules.conf and /etc/modules.d/ before rebooting.');
+			} else if (prevConfigured === null) {
+				errObj.hint = nextConf
+					? _('Re-read found the saved WED configuration is enabled on disk (previous saved state was unknown). Review the current switch state before rebooting.')
+					: _('Re-read found the saved WED configuration is disabled on disk (previous saved state was unknown). Review the current switch state before rebooting.');
+			} else if (nextConf === prevConfigured) {
+				errObj.hint = _('Re-read confirmed the saved WED configuration still matches the previous state.');
+			} else {
+				errObj.hint = _('Re-read found the saved WED configuration changed on disk. Review the current switch state before rebooting.');
+			}
+		}
+
+		function scheduleWedSettlePoll(wGen) {
+			clearWedSettleTimer();
+			wedSettleTimer = setTimeout(function() {
+				wedSettleTimer = null;
+				if (!settingsCurrent() || wGen !== app.wedGen) return;
+				if (!app.wedError || !app.wedError.pendingSave || app.wedError.wedGen !== wGen) return;
+				statusRefresh();
+			}, 1500);
+		}
+
 		function handleToggleWed(explicitVal) {
 			if (!settingsCurrent() || readonly || !app.statusKnown || app.wedBusy) return;
 			var wp = app.lastStatus.wed_param || {};
+			if (wp.saving === true) return;
 			if (wp.active === null || wp.active === undefined) return;
-			var curOn = wp.configured !== null && wp.configured !== undefined ? !!wp.configured : !!wp.active;
+			var prevConfigured = triBool(wp.configured);
+			var curOn = prevConfigured !== null ? prevConfigured : !!wp.active;
 			var nextBool = explicitVal !== undefined ? !!explicitVal : !curOn;
 			var val = nextBool ? 1 : 0;
 
+			clearWedSettleTimer();
 			app.wedBusy = true;
 			app.settingsGen++;
+			app.wedGen++;
 			renderRebootBanner();
 			renderWorkspace();
+
+			function handleWedInterrupted(errOrMsg, alreadyTranslated) {
+				var msg = errText(errOrMsg);
+				var wGen = app.wedGen;
+				app.wedError = {
+					title: _('Failed to save WED settings'),
+					message: alreadyTranslated ? msg : rpcError(msg),
+					raw: msg,
+					recoveryPath: '',
+					hint: _('The request was interrupted before confirmation. Re-reading the saved WED configuration...')
+				};
+				notifyError(errOrMsg);
+				renderAll();
+				scrollToId('mtkw-wed-error');
+
+				callStatus(true).then(function(st) {
+					if (!settingsCurrent() || wGen !== app.wedGen) return;
+					var nextWp = st && st.wed_param;
+					if (nextWp) {
+						app.lastStatus.wed_param = nextWp;
+						if (app.lastGood) app.lastGood.wed_param = nextWp;
+					}
+					if (nextWp && nextWp.saving === true) {
+						if (app.wedError) {
+							app.wedError.pendingSave = true;
+							app.wedError.prevConfigured = prevConfigured;
+							app.wedError.wedGen = wGen;
+							app.wedError.hint = _('A WED settings save is still in progress on the router. Wait a moment and refresh before rebooting.');
+						}
+						renderAll();
+						scheduleWedSettlePoll(wGen);
+						return;
+					}
+					applyWedRereadOutcome(app.wedError, nextWp, prevConfigured);
+					settingsSaved();
+					renderAll();
+				}).catch(function() {
+					if (!settingsCurrent() || wGen !== app.wedGen) return;
+					if (app.wedError) {
+						app.wedError.hint = _('Could not re-read the saved WED configuration after the interrupted request. Refresh the page before rebooting.');
+					}
+					renderAll();
+				});
+			}
 
 			callSetWedEnable(val).then(function(r) {
 				if (!settingsCurrent()) return;
@@ -982,8 +1157,15 @@ return view.extend({
 					scrollToId('mtkw-wed-error');
 					return;
 				}
+				if (!r || r.result !== 'ok' || r.enabled !== val) {
+					handleWedInterrupted(_('The WED settings update could not be confirmed.'), true);
+					return;
+				}
 				app.wedError = null;
-				if (app.lastStatus.wed_param) app.lastStatus.wed_param.configured = !!val;
+				if (app.lastStatus.wed_param) {
+					app.lastStatus.wed_param.configured = !!val;
+					delete app.lastStatus.wed_param.recovery_path;
+				}
 				settingsSaved();
 				renderAll();
 				var mismatch = app.lastStatus.wed_param && app.lastStatus.wed_param.configured !== app.lastStatus.wed_param.active;
@@ -995,18 +1177,7 @@ return view.extend({
 			}).catch(function(e) {
 				if (!settingsCurrent()) return;
 				app.wedBusy = false;
-				var msg = errText(e);
-				app.wedError = {
-					title: _('Failed to save WED settings'),
-					message: rpcError(msg),
-					raw: msg,
-					recoveryPath: '',
-					hint: _('The switch has been restored to the current saved configuration.')
-				};
-				notifyError(e);
-				settingsSaved();
-				renderAll();
-				scrollToId('mtkw-wed-error');
+				handleWedInterrupted(e);
 			});
 		}
 
@@ -1035,6 +1206,11 @@ return view.extend({
 					app.cpuSavedErr = true;
 					app.cpuSavedMsg = _('Error: %s').format(msg);
 					notifyError(msg);
+				} else if (!r || r.result !== 'ok' || r.governor !== gov || Number(r.freq) !== Number(freqStr)) {
+					var unconf = _('The CPU settings update could not be confirmed.');
+					app.cpuSavedErr = true;
+					app.cpuSavedMsg = _('Error: %s').format(unconf);
+					notifyError(unconf);
 				} else {
 					if (app.lastStatus.cpu) {
 						app.lastStatus.cpu.governor = gov;
@@ -1308,7 +1484,7 @@ return view.extend({
 				var ppes = Array.isArray(st.ppe) ? st.ppe : [];
 				var eng = ppes.filter(function(x) { return Number(x.id) === Number(id); })[0];
 				if (!eng) { drawer.close(); return; }
-				var hwOn = !!(st.flow_offload && st.flow_offload.hardware);
+				var foPpe = app.statusKnown ? flowState(st) : { hwActive: null, cfgSw: null, cfgHw: null, liveSw: null, liveHw: null, mismatch: false, unknown: true, kind: '', text: _('Unknown') };
 				var engBound = Number(eng.bound) || 0;
 				var engTotal = Number(eng.total) || 0;
 				var engUnb = Number(eng.unbound) || 0;
@@ -1316,7 +1492,11 @@ return view.extend({
 				var pct = engTotal > 0 ? ((engBound / engTotal) * 100).toFixed(1) + '%' : '0.0%';
 				title = 'PPE' + eng.id + ' · ' + _('PPE Engines');
 				iconName = 'ppe';
-				if (!hwOn) iconTone = 'warn';
+				if (foPpe.mismatch || foPpe.hwActive === false) iconTone = 'warn';
+				else if (foPpe.hwActive === null) iconTone = 'muted';
+				pills = [
+					aui.badge(foPpe.text, foPpe.kind === 'ok' ? 'ppe' : (foPpe.kind === 'warn' || foPpe.kind === 'info') ? 'warn' : '')
+				];
 
 				breadcrumbs = [
 					{ label: 'GDM' + (Number(eng.id) + 1), focusKey: 'gdm-' + eng.id, onClick: function() { openInspector('gdm', Number(eng.id)); } },
@@ -1333,7 +1513,9 @@ return view.extend({
 				];
 
 				body.push(kvBox('PPE' + eng.id + ' · ' + _('Offload Statistics'), [
-					{ k: _('Status'), v: hwOn ? _('Hardware offload active') : _('Software bypass') },
+					{ k: _('Status'), v: foPpe.text, err: foPpe.mismatch },
+					{ k: _('Saved config'), v: flowLabelPair(foPpe.cfgSw, foPpe.cfgHw) },
+					{ k: _('Live fw4 rule'), v: foPpe.liveHw !== null ? flowLabelPair(foPpe.liveSw, foPpe.liveHw) : _('Unavailable') },
 					{ k: _('Bound'), v: fmtCount(engBound) },
 					{ k: _('Unbound'), v: fmtCount(engUnb) },
 					{ k: 'FIN', v: fmtCount(engFin) },
@@ -1516,6 +1698,13 @@ return view.extend({
 
 			var anomalies = [];
 			if (app.statusKnown) {
+				if (wp.recovery_path) {
+					anomalies.push({
+						tone: 'err',
+						text: _('WED recovery required'),
+						onClick: function() { navigateTo('offload', app.allInOne ? 'mtkw-sec-datapath' : 'mtkw-sec-offload-ctrl', app.allInOne ? 'datapath' : 'offload-ctrl'); }
+					});
+				}
 				if (wp.active !== null && wp.active !== undefined && wp.configured !== null && wp.configured !== undefined && wp.configured !== wp.active) {
 					anomalies.push({ tone: 'warn', text: _('WED reboot required'), onClick: function() { scrollToId('mtkw-reboot-banner'); } });
 				}
@@ -1541,8 +1730,8 @@ return view.extend({
 						onClick: function() { app.mloPopoverOpen = true; navigateTo('wifi', 'mtkw-sec-wifi', 'wifi'); }
 					});
 				}
-				if (st.flow_offload && !st.flow_offload.hardware) {
-					var foHead = flowState(st);
+				var foHead = flowState(st);
+				if (foHead.mismatch || foHead.hwActive === false) {
 					anomalies.push({
 						tone: 'warn',
 						text: foHead.text,
@@ -1561,7 +1750,14 @@ return view.extend({
 			}
 			if (app.statusKnown) {
 				if (!anomalies.length) {
-					titleRowKids.push(aui.pill(_('Hardware offload optimal'), 'wed', { icon: 'check', iconSize: 12 }));
+					var foOpt = flowState(st);
+					if (foOpt.hwActive === true) {
+						titleRowKids.push(aui.pill(_('Hardware offload optimal'), 'wed', { icon: 'check', iconSize: 12 }));
+					} else if (foOpt.cfgHw !== null) {
+						titleRowKids.push(aui.pill(foOpt.text, ''));
+					} else {
+						titleRowKids.push(aui.pill(_('Offload status unknown'), ''));
+					}
 				} else {
 					anomalies.forEach(function(a) {
 						titleRowKids.push(aui.pill(a.text, a.tone, { icon: 'alert', iconSize: 12, onClick: a.onClick }));
@@ -1663,10 +1859,12 @@ return view.extend({
 				(app.lastMac && app.lastMac.available && (app.lastMac.macs || []).some(function(m) { return gdmErrorSum(m) > 0; }));
 			var tempC = fmtTempC(st.cpu && st.cpu.temp_milli);
 			var wp = st.wed_param || {};
+			var foDot = flowState(st);
 			var hasOffWarn = app.statusKnown && (
 				(tempC !== null && tempC >= 80) ||
+				!!wp.recovery_path ||
 				(wp.active !== null && wp.active !== undefined && wp.configured !== null && wp.configured !== undefined && wp.configured !== wp.active) ||
-				(st.flow_offload && !st.flow_offload.hardware)
+				foDot.mismatch || foDot.hwActive === false || (foDot.liveHw === null && foDot.cfgHw === false)
 			);
 			var wf = app.lastWifi || {};
 			var hasWifi = showWifiSection();
@@ -1757,7 +1955,7 @@ return view.extend({
 				'id': 'mtkw-btn-reboot-revert',
 				'class': 'mtkw-btn'
 			}, app.wedBusy ? _('Reverting…') : _('Revert'));
-			revertBtn.disabled = readonly || app.wedBusy;
+			revertBtn.disabled = readonly || app.wedBusy || wp.saving === true;
 			revertBtn.addEventListener('click', function() { handleToggleWed(!!wp.active); });
 
 			var rebootLink = null;
@@ -2032,14 +2230,19 @@ return view.extend({
 			var weds = Array.isArray(st.wed) ? st.wed : [];
 			var cpu = st.cpu || {};
 			var wf = app.lastWifi || {};
-			var fo = st.flow_offload || {};
-			var hwOn = !!fo.hardware;
 
 			/* 1. PPE Bind Rate */
 			var tot = 0, bnd = 0;
 			ppes.forEach(function(e) { tot += Number(e.total) || 0; bnd += Number(e.bound) || 0; });
 			var bindPct = tot > 0 ? (bnd / tot) * 100 : 0;
-			var foSt = app.statusKnown ? flowState(st) : { kind: '', text: _('Unknown') };
+			var foSt = app.statusKnown ? flowState(st) : { hwActive: null, cfgHw: null, liveHw: null, mismatch: false, unknown: true, kind: '', text: _('Unknown') };
+			var hwActive = foSt.hwActive;
+			var ppeModeTxt = foSt.mismatch ? foSt.text
+				: hwActive === true ? _('Hardware offload')
+					: hwActive === false ? _('Software bypass')
+						: foSt.text;
+			var ppePillTone = foSt.kind === 'ok' ? 'ppe' : (foSt.kind === 'warn' || foSt.kind === 'info') ? 'warn' : '';
+			var ppeArcTone = (foSt.mismatch || hwActive === false) ? 'warn' : 'ppe';
 			var ppeAbsent = !!st.ppeAbsent || (ppeKnown && !ppes.length && !st.ppeFailed);
 
 			var ppeFooterKids = ppes.length ? ppes.map(function(e) {
@@ -2069,15 +2272,15 @@ return view.extend({
 						E('div', { 'class': 'mtkw-gauge-sub' }, ppeAbsent
 							? _('PPE debugfs not found')
 							: ppeKnown
-								? _('%d PPE · %s').format(ppes.length, hwOn ? _('Hardware offload') : _('Software bypass'))
+								? _('%d PPE · %s').format(ppes.length, ppeModeTxt)
 								: (st.ppeFailed ? _('Unknown') : _('Loading…')))
 					]),
-					aui.pill(foSt.text, foSt.kind === 'ok' ? 'ppe' : foSt.kind === 'info' ? 'warn' : '')
+					aui.pill(foSt.text, ppePillTone)
 				]),
 				E('div', { 'class': 'mtkw-gauge-svg-wrap' }, [
 					aui.arcGauge({
 						pct: (!ppeAbsent && ppeKnown) ? bindPct : 0,
-						tone: hwOn ? 'ppe' : 'warn',
+						tone: ppeArcTone,
 						gradId: 'mtkw-g-ppe',
 						valueText: ppeAbsent ? '—' : ppeKnown ? bindPct.toFixed(1) + '%' : (st.ppeFailed ? '—' : '…'),
 						subText: ppeAbsent
@@ -2273,9 +2476,8 @@ return view.extend({
 			var st = app.lastStatus || {};
 			var ppes = Array.isArray(st.ppe) ? st.ppe : [];
 			var weds = Array.isArray(st.wed) ? st.wed : [];
-			var fo = st.flow_offload || {};
 			var wp = st.wed_param || {};
-			var foSt = app.statusKnown ? flowState(st) : { on: false, kind: '', text: _('Unknown') };
+			var foSt = app.statusKnown ? flowState(st) : { on: false, hwActive: null, cfgSw: null, cfgHw: null, liveSw: null, liveHw: null, mismatch: false, unknown: true, kind: '', text: _('Unknown'), detail: '' };
 			var wedSt = app.statusKnown ? wedState(st) : { on: false, kind: '', code: 'unknown', text: _('Unknown') };
 			var wedChecked = wp.configured !== null && wp.configured !== undefined ? !!wp.configured : !!wp.active;
 			var out = [];
@@ -2336,7 +2538,7 @@ return view.extend({
 						E('div', {}, [
 							E('div', { 'class': 'mtkw-ctrl-title' }, [
 								E('span', {}, _('Hardware Flow Offload')),
-								aui.pill(foSt.text, foSt.kind === 'ok' ? 'wed' : foSt.kind === 'info' ? 'primary' : ''),
+								aui.pill(foSt.text, foSt.kind === 'ok' ? 'wed' : foSt.kind === 'warn' ? 'warn' : foSt.kind === 'info' ? 'primary' : ''),
 								aui.pill(_('Instant'), 'ppe')
 							]),
 							E('div', { 'class': 'mtkw-ctrl-desc' }, _('Offload established NAT and routed flows to PPE hardware (flow_offloading_hw).'))
@@ -2347,56 +2549,83 @@ return view.extend({
 						hwSwitch
 					])
 				]),
+				app.statusKnown ? E('div', { 'class': 'mtkw-mono mtkw-ctrl-meta' + (foSt.mismatch ? ' mtkw-t-warn' : '') }, foSt.detail) : null,
 				E('div', { 'class': 'mtkw-mono mtkw-ctrl-meta' },
-					_('Software offload: %s · PPE engines: %d').format(fo.software ? _('Enabled') : _('Disabled'), ppes.length))
+					_('Software offload: %s · PPE engines: %d').format(
+						foSt.cfgSw === true ? _('Enabled') : foSt.cfgSw === false ? _('Disabled') : _('Unknown'),
+						ppes.length))
 			]);
 
+			var wedSaving = app.wedBusy || wp.saving === true;
 			var wedSwitch = aui.toggleSwitch({
 				id: 'mtkw-switch-wed',
 				checked: wedChecked,
-				disabled: readonly || !app.statusKnown || wedSt.code === 'unloaded',
-				busy: app.wedBusy,
+				disabled: readonly || !app.statusKnown || wedSt.code === 'unloaded' || wp.saving === true,
+				busy: wedSaving,
 				tone: wedSt.code === 'reboot_required' ? 'warn' : '',
 				ariaLabel: _('Wi-Fi Acceleration (WED)'),
 				onChange: function(next) { handleToggleWed(next); }
 			});
 
+			var persistedRecPath = (wp && wp.recovery_path) ? String(wp.recovery_path) : '';
+			var activeWedAlert = app.wedError ? {
+				title: app.wedError.title,
+				message: app.wedError.message,
+				raw: app.wedError.raw,
+				recoveryPath: app.wedError.recoveryPath || persistedRecPath,
+				hint: app.wedError.hint,
+				dismissible: true
+			} : persistedRecPath ? {
+				title: _('Previous WED save requires manual recovery'),
+				message: _('Automatic rollback could not complete. Inspect the recovery directory above on the router before rebooting.'),
+				raw: '',
+				recoveryPath: persistedRecPath,
+				hint: '',
+				dismissible: false
+			} : null;
+
 			var wedAlertKids = null;
-			if (app.wedError) {
-				var dismissBtn = E('button', {
-					'type': 'button',
-					'class': 'mtkw-btn mtkw-btn-soft mtkw-btn-xs'
-				}, _('Dismiss'));
-				dismissBtn.addEventListener('click', function() {
-					app.wedError = null;
-					renderWorkspace();
-				});
+			if (activeWedAlert) {
+				var dismissBtn = null;
+				if (activeWedAlert.dismissible) {
+					dismissBtn = E('button', {
+						'type': 'button',
+						'class': 'mtkw-btn mtkw-btn-soft mtkw-btn-xs'
+					}, _('Dismiss'));
+					dismissBtn.addEventListener('click', function() {
+						clearWedSettleTimer();
+						app.wedError = null;
+						renderWorkspace();
+					});
+				}
 
 				var recBlock = null;
-				if (app.wedError.recoveryPath) {
+				if (activeWedAlert.recoveryPath) {
 					var copyRecBtn = E('button', {
 						'type': 'button',
 						'class': 'mtkw-btn mtkw-btn-soft mtkw-btn-xs'
 					}, [ aui.icon('copy', 12), _('Copy path') ]);
 					copyRecBtn.addEventListener('click', function() {
-						copyAction(app.wedError.recoveryPath, _('Recovery path'), copyRecBtn);
+						copyAction(activeWedAlert.recoveryPath, _('Recovery path'), copyRecBtn);
 					});
 					recBlock = E('div', { 'class': 'mtkw-wed-rec-row' }, [
-						E('code', { 'class': 'mtkw-cmd-box is-err' }, app.wedError.recoveryPath),
+						E('code', { 'class': 'mtkw-cmd-box is-err' }, activeWedAlert.recoveryPath),
 						copyRecBtn
 					]);
-				} else if (app.wedError.raw && app.wedError.raw !== app.wedError.message) {
-					recBlock = E('div', { 'class': 'mtkw-inline-alert-code' }, app.wedError.raw);
+				} else if (activeWedAlert.raw && activeWedAlert.raw !== activeWedAlert.message) {
+					recBlock = E('div', { 'class': 'mtkw-inline-alert-code' }, activeWedAlert.raw);
 				}
 
 				wedAlertKids = [
 					E('div', { 'class': 'mtkw-inline-alert-head' }, [
-						E('span', { 'class': 'mtkw-inline-alert-title' }, [ aui.icon('alert', 15), app.wedError.title ]),
+						E('span', { 'class': 'mtkw-inline-alert-title' }, [ aui.icon('alert', 15), activeWedAlert.title ]),
 						dismissBtn
 					]),
-					E('div', { 'class': 'mtkw-wed-alert-msg' }, app.wedError.message),
+					activeWedAlert.dismissible ? E('div', { 'class': 'mtkw-wed-alert-msg' }, activeWedAlert.message) : null,
 					recBlock,
-					app.wedError.hint ? E('div', { 'class': 'mtkw-wed-alert-hint' }, app.wedError.hint) : null
+					activeWedAlert.dismissible
+						? (activeWedAlert.hint ? E('div', { 'class': 'mtkw-wed-alert-hint' }, activeWedAlert.hint) : null)
+						: E('div', { 'class': 'mtkw-wed-alert-hint' }, activeWedAlert.message)
 				];
 			}
 
@@ -2404,9 +2633,9 @@ return view.extend({
 				'class': 'mtkw-inline-alert',
 				'id': 'mtkw-wed-error',
 				'role': 'alert',
-				'hidden': app.wedError ? null : ''
+				'hidden': activeWedAlert ? null : ''
 			}, wedAlertKids);
-			wedAlert.hidden = !app.wedError;
+			wedAlert.hidden = !activeWedAlert;
 
 			var wedTile = E('div', { 'class': 'mtkw-ctrl-tile' }, [
 				E('div', { 'class': 'mtkw-ctrl-row' }, [
@@ -2423,7 +2652,7 @@ return view.extend({
 						])
 					]),
 					E('div', { 'class': 'mtkw-inline mtkw-inline--gap7' }, [
-						app.wedBusy ? E('span', { 'class': 'mtkw-mono mtkw-busy-lbl mtkw-t-warn' }, _('Saving…')) : null,
+						wedSaving ? E('span', { 'class': 'mtkw-mono mtkw-busy-lbl mtkw-t-warn' }, _('Saving…')) : null,
 						wedSwitch
 					])
 				]),
@@ -2449,7 +2678,8 @@ return view.extend({
 
 		function buildSpatialTopologyCard() {
 			var st = app.lastStatus || {};
-			var hwOn = !!(st.flow_offload && st.flow_offload.hardware);
+			var foTopo = app.statusKnown ? flowState(st) : { hwActive: null, cfgHw: null, liveHw: null, mismatch: false, unknown: true, kind: '', text: _('Unknown') };
+			var hwOn = foTopo.hwActive === true;
 			var ppeNum = effectivePpeNum();
 			var ppes = Array.isArray(st.ppe) ? st.ppe : [];
 			var weds = Array.isArray(st.wed) ? st.wed : [];
@@ -2459,9 +2689,16 @@ return view.extend({
 			var wf = app.lastWifi || {};
 			var bands = (wf.available && Array.isArray(wf.bands)) ? wf.bands : [];
 
-			var badges = [
-				aui.pill(hwOn ? _('Hardware offload active') : _('Software forwarding · PPE bypassed'), hwOn ? 'ppe' : 'warn')
-			];
+			var topoBadgeTxt = foTopo.mismatch ? foTopo.text
+				: foTopo.hwActive === true ? _('Hardware offload active')
+					: foTopo.hwActive === false ? _('Software forwarding · PPE bypassed')
+						: foTopo.cfgHw !== null ? foTopo.text
+							: _('Offload status unknown');
+			var topoBadgeTone = foTopo.mismatch ? 'warn'
+				: foTopo.hwActive === true ? 'ppe'
+					: foTopo.hwActive === false ? 'warn'
+						: '';
+			var badges = [ aui.pill(topoBadgeTxt, topoBadgeTone) ];
 			if (app.selectedTopo) {
 				badges.push(aui.pill(_('Clear highlight'), 'primary', { icon: 'close', iconSize: 11, onClick: clearTopoSelection }));
 			}
@@ -2633,7 +2870,7 @@ return view.extend({
 					colPpe: _('PPE Engines'),
 					colWed: _('WED WIRELESS'),
 					colWifi: _('WI-FI BANDS'),
-					swForwardBadge: _('SW Forward'),
+					swForwardBadge: foTopo.hwActive === false ? _('SW Forward') : '',
 					busLabel: 'MTK FE ↔ WED',
 					mBusLabel: '↕ MTK FE ↔ WED',
 					mColPorts: '01 ' + _('PORTS'),
@@ -2658,7 +2895,7 @@ return view.extend({
 
 		/* ── Per-Core CPU Utilization Panel (/proc/stat) ──────────────────── */
 
-		function buildPerCorePanel(hwOn) {
+		function buildPerCorePanel(hwActive) {
 			var sum = summarizeCoreSamples(app.coreSamples);
 			if (!sum) return null;
 
@@ -2673,21 +2910,29 @@ return view.extend({
 				var highSirq = sum.avgSirq >= 10 || sum.maxSirq >= 20;
 				var sirqTone = sum.avgSirq >= 25 || sum.maxSirq >= 40 ? 'err' : highSirq ? 'warn' : 'wed';
 				var offloadTone, offloadText, offloadIcon;
-				if (hwOn && !highSirq) {
+				if (hwActive === true && !highSirq) {
 					offloadTone = 'wed';
 					offloadText = _('HW offload active · Low SoftIRQ');
 					offloadIcon = 'check';
-				} else if (hwOn && highSirq) {
+				} else if (hwActive === true && highSirq) {
 					offloadTone = 'warn';
 					offloadText = _('HW offload active · Elevated SoftIRQ');
 					offloadIcon = 'alert';
-				} else if (!hwOn && !highSirq) {
+				} else if (hwActive === false && !highSirq) {
 					offloadTone = 'warn';
 					offloadText = _('Software forwarding · Low SoftIRQ');
 					offloadIcon = 'check';
-				} else {
+				} else if (hwActive === false) {
 					offloadTone = 'err';
 					offloadText = _('Software forwarding · Elevated SoftIRQ');
+					offloadIcon = 'alert';
+				} else if (!highSirq) {
+					offloadTone = '';
+					offloadText = _('Low SoftIRQ');
+					offloadIcon = 'check';
+				} else {
+					offloadTone = 'warn';
+					offloadText = _('Elevated SoftIRQ');
 					offloadIcon = 'alert';
 				}
 
@@ -2731,8 +2976,8 @@ return view.extend({
 			var cpu = st.cpu || {};
 			var tempC = fmtTempC(cpu.temp_milli);
 			var tg = tempGrade(tempC);
-			var hwOn = !!(st.flow_offload && st.flow_offload.hardware);
-			var coresPanel = buildPerCorePanel(hwOn);
+			var foCpu = app.statusKnown ? flowState(st) : { hwActive: null };
+			var coresPanel = buildPerCorePanel(foCpu.hwActive);
 
 			var tempPill = aui.badge(tempC !== null ? (tempC.toFixed(1) + ' °C · ' + tg.text) : 'N/A', tg.tone);
 
@@ -3722,7 +3967,7 @@ return view.extend({
 				id: 'mtkw-sec-offload-ctrl',
 				foldKey: 'offload-ctrl',
 				title: _('Hardware Offload'),
-				badges: [ aui.pill(foTab.text, foTab.kind === 'ok' ? 'ppe' : foTab.kind === 'info' ? 'warn' : '') ],
+				badges: [ aui.pill(foTab.text, foTab.kind === 'ok' ? 'ppe' : (foTab.kind === 'warn' || foTab.kind === 'info') ? 'warn' : '') ],
 				body: [
 					E('p', { 'class': 'mtkw-card-sub mtkw-card-sub--mb' }, _('Switches here apply the hardware offload settings for this device.'))
 				].concat(buildProgressiveControlsFooter(true))
@@ -3971,6 +4216,10 @@ return view.extend({
 				if (!stErr) {
 					app.lastGood = st;
 					app.statusKnown = true;
+					if (fresh && app.wedError && app.wedError.pendingSave && app.wedError.wedGen === app.wedGen && st.wed_param && st.wed_param.saving !== true) {
+						clearWedSettleTimer();
+						applyWedRereadOutcome(app.wedError, st.wed_param, app.wedError.prevConfigured);
+					}
 					var c = st.cpu || {};
 					if (c.cur_freq > 0) {
 						var tDeg = (typeof c.temp_milli === 'number' && isFinite(c.temp_milli) && c.temp_milli > 0)
@@ -4079,6 +4328,7 @@ return view.extend({
 			document.removeEventListener('keydown', onKeyDown);
 			if (bootTimer) { clearTimeout(bootTimer); bootTimer = null; }
 			if (coreFastTimer) { clearTimeout(coreFastTimer); coreFastTimer = null; }
+			clearWedSettleTimer();
 			if (ageTimer) { clearInterval(ageTimer); ageTimer = null; }
 			poll.remove(refresh);
 			poll.remove(pollPpe);

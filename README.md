@@ -53,31 +53,41 @@ detected automatically from the system, so no per-board configuration is needed:
   - Bound flows and bind rate across all PPE engines; GDM-to-PPE mapping.
   - WED version, attachment state, TX/RX vs TX-only capability, and WO firmware build
     time (the WO firmware itself carries no separate version number).
-  - **Hardware flow offload** switch (`firewall.@defaults[0].flow_offloading_hw`): on live
-    routers (`MTKW_ROOT` empty), always commits through OpenWrt's `rpcd`/`uci` channel via
-    a short-lived private session (`timeout: 120`, minimal `firewall` `read`/`write` grant,
-    requiring no `uci` grant in the plugin's user `acl.d`) using transactional `uci apply`
-    (`rollback: true`, `timeout: 60`) → on-disk and live `fw4`/`nft` verification →
-    `uci confirm`, or automatic/explicit `uci rollback` on failure. Holding `apply_sid`
-    across the transaction prevents concurrent LuCI commits from interleaving before
-    rollback completes and honors any active external `apply_sid` confirmation window;
-    live routers never silently fall back to direct file writes when `rpcd` is unavailable
-    or `apply_sid` is locked (file-level locked CAS `uci_pkg_apply` is used only under
+  - **Hardware flow offload** switch (`firewall.@defaults[0].flow_offloading_hw`): `getStatus`
+    reports both saved UCI configuration (`software`/`hardware`, or `null` if unreadable)
+    and live `fw4` `nft` flowtable state (`live_software`/`live_hardware`, or `null` when
+    `nft`/`table inet fw4` is unavailable). On live routers (`MTKW_ROOT` empty), toggling
+    always commits through OpenWrt's `rpcd`/`uci` channel via a short-lived private session
+    (`timeout: 120`, minimal `firewall` `read`/`write` grant, requiring no `uci` grant in
+    the plugin's user `acl.d`) using transactional `uci apply` (`rollback: true`,
+    `timeout: 60`) → on-disk and live `fw4`/`nft` verification → `uci confirm`, or
+    automatic/explicit `uci rollback` on failure. Holding `apply_sid` across the
+    transaction prevents concurrent LuCI commits from interleaving before rollback
+    completes and honors any active external `apply_sid` confirmation window; live routers
+    never silently fall back to direct file writes when `rpcd` is unavailable or
+    `apply_sid` is locked (file-level locked CAS `uci_pkg_apply` is used only under
     `$MTKW_ROOT` offline test roots). Reload ownership stays single-shot: when `procd`
     registers a `firewall` `config.change` trigger and `fw4` is present, `rpcd`'s trigger
     drives the reload while the backend verifies `/var/run/fw4.state`, `/var/run/fw4.lock`,
     and `nft -t list table inet fw4` (running a single `/etc/init.d/firewall reload`
-    otherwise). Note two upstream OpenWrt behaviors: `fw4 reload` reads
-    `/tmp/.uci/firewall` during reload, so uncommitted firewall rules already staged in
-    shared `/tmp/.uci` may take effect early in `fw4` while remaining uncommitted on disk;
-    and direct SSH `uci commit firewall` still carries upstream `openwrt/uci/file.c`'s
-    unlock-before-`rename()` race window, matching native LuCI.
+    otherwise). Note upstream OpenWrt boundaries: `fw4 reload` reads `/tmp/.uci/firewall`
+    during reload, so uncommitted firewall rules already staged in shared `/tmp/.uci` may
+    take effect early in `fw4` while remaining uncommitted on disk; direct SSH
+    `uci commit firewall` still carries upstream `openwrt/uci/file.c`'s
+    unlock-before-`rename()` race window, matching native LuCI; and while `rpcd`'s checked
+    `apply` transaction is awaiting confirmation, if another administrator runs
+    `uci commit firewall` directly via SSH and the transaction subsequently rolls back,
+    native `rpcd` restores its full `/etc/config/firewall` snapshot and may overwrite that
+    intervening SSH commit (concurrent LuCI sessions are unaffected).
   - **Wi-Fi acceleration** switch (`wed_enable`): writes `options <driver> wed_enable=Y`
     to `/etc/modules.conf` and removes conflicting WED parameters for that driver from
     `/etc/modules-boot.d/` and `/etc/modules.d/`, preserving unrelated options, comments,
     file permissions, and symlinks. Parameter values with quotes spanning lines or files
-    are read accurately, while saving is rejected cleanly before modifying files; if a
-    rollback fails, an inline recovery alert displays the copyable recovery directory path.
+    are read accurately, while saving is rejected cleanly before modifying files; multi-file
+    updates are journaled under `/var/run/mtk-wed` so an interrupted save (including
+    `SIGKILL` on `rpcd` exec timeout) is automatically rolled back on the next `getStatus`
+    or `setWedEnable` call, and if a rollback fails, an inline recovery alert displays the
+    copyable recovery directory path.
     An uncollapsible top-level **Reboot Banner** with one-click **Revert** appears whenever
     configured and active WED states differ.
 - **Wi-Fi & MLO**:

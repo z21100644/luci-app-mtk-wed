@@ -48,6 +48,9 @@ msgstr "%s 错误/丢弃"
 msgid "0 errors"
 msgstr "0 错误"
 
+msgid "A WED settings save is still in progress on the router. Wait a moment and refresh before rebooting."
+msgstr "路由器上仍有 WED 设置保存操作正在进行中。重新启动前请稍候片刻并刷新。"
+
 msgid "Active"
 msgstr "当前运行"
 
@@ -165,6 +168,18 @@ msgstr "收起"
 msgid "Configured"
 msgstr "已写入配置"
 
+msgid "Configured disabled"
+msgstr "已配置停用"
+
+msgid "Configured disabled, rule still active"
+msgstr "已配置停用，规则仍生效中"
+
+msgid "Configured enabled"
+msgstr "已配置启用"
+
+msgid "Configured enabled, rule not active"
+msgstr "已配置启用，规则尚未生效"
+
 msgid "Connection stale"
 msgstr "连接异常"
 
@@ -195,6 +210,12 @@ msgstr "复制路径"
 msgid "Core Count"
 msgstr "核心数"
 
+msgid "Could not re-read the saved WED configuration after the interrupted request. Refresh the page before rebooting."
+msgstr "请求中断后无法重新读取已保存的 WED 配置。重新启动前请先刷新页面。"
+
+msgid "Could not verify the saved WED configuration. Inspect /etc/modules.conf and /etc/modules.d/ before rebooting."
+msgstr "无法验证已保存的 WED 配置。重新启动前请检查 /etc/modules.conf 和 /etc/modules.d/。"
+
 msgid "DSA Switch RJ45"
 msgstr "DSA 交换机 RJ45"
 
@@ -224,6 +245,9 @@ msgstr "关闭提示"
 
 msgid "Driver module"
 msgstr "内核驱动模块"
+
+msgid "Elevated SoftIRQ"
+msgstr "SoftIRQ 偏高"
 
 msgid "Enabled"
 msgstr "已启用"
@@ -411,6 +435,9 @@ msgstr "实时 TX"
 msgid "Live Throughput & Port Counters"
 msgstr "端口实时吞吐量与计数"
 
+msgid "Live fw4 rule"
+msgstr "实时 fw4 规则"
+
 msgid "Live · 5s"
 msgstr "实时更新 · 5s"
 
@@ -419,6 +446,9 @@ msgstr "负载 %s"
 
 msgid "Loading…"
 msgstr "加载中…"
+
+msgid "Low SoftIRQ"
+msgstr "SoftIRQ 低"
 
 msgid "MAC Counters (GDM)"
 msgstr "MAC 计数（GDM）"
@@ -534,6 +564,9 @@ msgstr "卸载统计"
 msgid "Offload established NAT and routed flows to PPE hardware (flow_offloading_hw)."
 msgstr "将已建立连接的 NAT 与路由流量卸载至 PPE 硬件处理（flow_offloading_hw）。"
 
+msgid "Offload status unknown"
+msgstr "卸载状态未知"
+
 msgid "Offload wireless packets through WED and WO firmware to reduce CPU load."
 msgstr "通过 WED 与 WO 固件卸载无线数据包，降低 CPU 负载。"
 
@@ -618,6 +651,9 @@ msgstr "无法获取端口数据"
 msgid "Ports & GDM"
 msgstr "端口与 GDM"
 
+msgid "Previous WED save requires manual recovery"
+msgstr "先前保存 WED 设置失败，需要手动恢复"
+
 msgid "Previous page"
 msgstr "上一页"
 
@@ -654,6 +690,18 @@ msgstr "接收数据包"
 msgid "RX short errors"
 msgstr "RX 超短帧错误"
 
+msgid "Re-read confirmed the saved WED configuration still matches the previous state."
+msgstr "重新读取确认已保存的 WED 配置仍与先前状态一致。"
+
+msgid "Re-read found the saved WED configuration changed on disk. Review the current switch state before rebooting."
+msgstr "重新读取发现磁盘上已保存的 WED 配置已更改。重新启动前请检查当前开关状态。"
+
+msgid "Re-read found the saved WED configuration is disabled on disk (previous saved state was unknown). Review the current switch state before rebooting."
+msgstr "重新读取发现磁盘上已保存的 WED 配置为停用（先前保存状态未知）。重新启动前请检查当前开关状态。"
+
+msgid "Re-read found the saved WED configuration is enabled on disk (previous saved state was unknown). Review the current switch state before rebooting."
+msgstr "重新读取发现磁盘上已保存的 WED 配置为启用（先前保存状态未知）。重新启动前请检查当前开关状态。"
+
 msgid "Read-only"
 msgstr "只读权限"
 
@@ -687,6 +735,12 @@ msgstr "恢复设置"
 msgid "Reverting…"
 msgstr "恢复中…"
 
+msgid "Rule active (config unknown)"
+msgstr "规则生效中（配置未知）"
+
+msgid "Rule inactive (config unknown)"
+msgstr "规则未生效（配置未知）"
+
 msgid "SFP+ OPEN"
 msgstr "SFP+ 空槽"
 
@@ -701,6 +755,12 @@ msgstr "采样中…"
 
 msgid "Save"
 msgstr "保存"
+
+msgid "Saved config"
+msgstr "已保存配置"
+
+msgid "Saved config: %s · Live fw4 rule: %s"
+msgstr "已保存配置：%s · 实时 fw4 规则：%s"
 
 msgid "Saved. Reboot the router to apply the Wi-Fi acceleration change."
 msgstr "已保存。请重新启动路由器以使 Wi-Fi 加速更改生效。"
@@ -726,6 +786,9 @@ msgstr "快照于 %d 秒前"
 msgid "Software bypass"
 msgstr "软件旁路"
 
+msgid "Software configured, rule not active"
+msgstr "已配置仅软件，规则尚未生效"
+
 msgid "Software forwarding · Elevated SoftIRQ"
 msgstr "软件转发 · SoftIRQ 偏高"
 
@@ -740,6 +803,12 @@ msgstr "软件卸载：%s · PPE 引擎：%d 个"
 
 msgid "Software only"
 msgstr "仅软件"
+
+msgid "Software only (config unknown)"
+msgstr "仅软件（配置未知）"
+
+msgid "Software only (configured)"
+msgstr "仅软件（已配置）"
 
 msgid "Some Wi-Fi data could not be read or saved; the rates may be incomplete."
 msgstr "部分 Wi-Fi 数据无法读取或保存；速率可能不完整。"
@@ -801,6 +870,15 @@ msgstr "发送，接收未知"
 msgid "TX-only wireless hardware offload active; RX frames are handled by CPU DMA."
 msgstr "仅启用 TX 无线硬件卸载；RX 数据帧由 CPU DMA 处理。"
 
+msgid "The CPU settings update could not be confirmed."
+msgstr "无法确认 CPU 设置是否已更新。"
+
+msgid "The WED settings update could not be confirmed."
+msgstr "无法确认 WED 设置是否已更新。"
+
+msgid "The request was interrupted before confirmation. Re-reading the saved WED configuration..."
+msgstr "请求在确认前中断，正在重新读取已保存的 WED 配置…"
+
 msgid "The switch has been restored to the current saved configuration."
 msgstr "开关已恢复为当前保存的配置状态。"
 
@@ -848,6 +926,9 @@ msgstr "WED 配置已恢复为当前运行状态"
 
 msgid "WED reboot required"
 msgstr "WED 需重启"
+
+msgid "WED recovery required"
+msgstr "WED 需手动恢复"
 
 msgid "WI-FI BANDS"
 msgstr "Wi-Fi 频段"

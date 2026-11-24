@@ -544,6 +544,7 @@
 .mtkw-page .mtkw-ctrl-title { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: .94em; font-weight: 700; }
 .mtkw-page .mtkw-ctrl-desc { font-size: .8em; color: var(--mtkw-text-muted); margin-top: 2px; }
 .mtkw-page .mtkw-ctrl-meta { font-size: .77em; color: var(--mtkw-text-muted); }
+.mtkw-page .mtkw-ctrl-meta.mtkw-t-warn { color: var(--mtkw-warn); }
 .mtkw-page .mtkw-busy-lbl { font-size: 11px; }
 .mtkw-page .mtkw-wed-rec-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin: 6px 0; }
 .mtkw-page .mtkw-wed-alert-msg { font-weight: 680; }

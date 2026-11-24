@@ -48,6 +48,13 @@ case "$UCI_CAS_TRIES" in ''|*[!0-9]*|0|0?*) UCI_CAS_TRIES=5 ;; esac
 case "$FW_RELOAD_WAIT" in ''|*[!0-9]*|0|0?*) FW_RELOAD_WAIT=10 ;; esac
 CLEANUP_PATHS=
 CLEANUP_WED_TXN=
+CLEANUP_WED_COMMITTING=0
+CLEANUP_WED_REV_STEPS=
+CLEANUP_CPU_TXN=
+CLEANUP_CPU_APPLIED=
+CLEANUP_CPU_COMMITTING=0
+CLEANUP_CPU_GOV=
+CLEANUP_CPU_FREQ=
 CLEANUP_RPCD_SID=
 CLEANUP_FLOW_APPLY=
 CLEANUP_FLOW_MANUAL=0
@@ -57,8 +64,8 @@ rpcd_session_destroy() {
 	# Interrupted after dispatching a checked apply. Only its owning SID
 	# can roll it back. The daemon also has an independent rollback timer.
 	if [ -n "$CLEANUP_FLOW_APPLY" ]; then
-		if ubus -S call uci rollback "{\"ubus_rpc_session\":\"$CLEANUP_RPCD_SID\"}" >/dev/null 2>&1 4>&- 7<&- &&
-			[ "$CLEANUP_FLOW_MANUAL" = 1 ]; then
+		ubus -S call uci rollback "{\"ubus_rpc_session\":\"$CLEANUP_RPCD_SID\"}" >/dev/null 2>&1 4>&- 7<&- || true
+		if [ "$CLEANUP_FLOW_MANUAL" = 1 ]; then
 			"$FW_INIT" reload >/dev/null 2>&1 4>&- 7<&-
 		fi
 		CLEANUP_FLOW_APPLY=
@@ -85,13 +92,44 @@ EOF
 }
 
 cleanup_on_exit() {
-	local p
+	local p cpu_phase WED_RESTORE_FAILED=0 CPU_RESTORE_FAILED=0
 	trap - EXIT INT TERM HUP
 	rpcd_session_destroy
 	if [ -n "$CLEANUP_WED_TXN" ]; then
 		WED_TXN=$CLEANUP_WED_TXN
-		CLEANUP_WED_TXN=
-		wed_cleanup
+		if [ "$CLEANUP_WED_COMMITTING" = 1 ]; then
+			CLEANUP_WED_COMMITTING=0
+			rd "$WED_TXN/state"
+			if [ "$RD" = committed ]; then
+				wed_cleanup
+			else
+				wed_restore
+				if [ "$WED_RESTORE_FAILED" = 1 ]; then
+					wed_write_state "$WED_TXN" restore_failed
+					CLEANUP_WED_TXN=
+					CLEANUP_WED_REV_STEPS=
+				else
+					wed_cleanup
+				fi
+			fi
+		else
+			wed_cleanup
+		fi
+	fi
+	if [ "$CLEANUP_CPU_COMMITTING" != 0 ] && [ -n "$CLEANUP_CPU_TXN" ]; then
+		cpu_phase=$CLEANUP_CPU_COMMITTING
+		CLEANUP_CPU_COMMITTING=0
+		if [ "$cpu_phase" = 2 ] &&
+			uci_ro_read mtk_wed cpu.governor && [ "$UCI_VAL" = "$CLEANUP_CPU_GOV" ] &&
+			uci_ro_read mtk_wed cpu.max_freq && [ "$UCI_VAL" = "$CLEANUP_CPU_FREQ" ]; then
+			:
+		else
+			cpu_restore "$CLEANUP_CPU_TXN" "$CLEANUP_CPU_APPLIED"
+		fi
+		CLEANUP_CPU_TXN=
+		CLEANUP_CPU_APPLIED=
+		CLEANUP_CPU_GOV=
+		CLEANUP_CPU_FREQ=
 	fi
 	if [ -n "$CLEANUP_PATHS" ]; then
 		while IFS= read -r p; do
@@ -605,7 +643,7 @@ ppe_fresh() {
 # One caller collects at a time; the others wait and take its snapshot, so
 # concurrent requests cannot multiply the copies held in RAM.
 ppe_snapshot() {
-	local sources="$1" ttl="$2" i=0 rc got=0
+	local sources="$1" ttl="$2" got=0
 	PPE_SNAPSHOT="$STATE/ppe.snapshot"
 	[ -d "$STATE" ] || mkdir -p -m 0700 "$STATE" 2>/dev/null
 	if ! clock_now; then
@@ -615,14 +653,7 @@ ppe_snapshot() {
 	# Read the clock again once the lock is held: a caller that waited
 	# judges, and stamps, by the time it actually samples.
 	{
-		while :; do
-			if flock -n 4; then got=1; break; fi
-			rc=$?
-			[ "$rc" = 1 ] || break
-			[ "$i" -lt "$PPE_LOCK_WAIT" ] || break
-			i=$((i + 1))
-			sleep 1
-		done
+		flock_wait x 4 "$PPE_LOCK_WAIT" && got=1
 		if [ "$got" = 1 ]; then
 			if ! clock_now; then
 				[ "$ttl" = 0 ] && NOW=0 || return 1
@@ -1056,10 +1087,38 @@ wed_configured() {
 }
 
 wed_param_json() {
-	local mod live
+	local mod live WED_RECOVERY_PATH= WED_SAVE_BUSY=0 WC=null
 	mod=$(wed_module)
 	rd "$R/sys/module/$mod/parameters/wed_enable"; kbool "$RD"; live=$KB
-	wed_configured "$mod"
+	if [ -e "$STATE/wed.lock" ] && [ ! -w "$STATE/wed.lock" ]; then
+		WED_SAVE_BUSY=1
+	elif [ -d "$STATE" ] && [ -w "$STATE" ]; then
+		{
+			if ! flock -s -n 9; then
+				WED_SAVE_BUSY=1
+			else
+				wed_recover_if_idle
+				if [ "$WED_SAVE_BUSY" = 0 ] && [ -z "$WED_RECOVERY_PATH" ]; then
+					wed_configured "$mod"
+				fi
+			fi
+			true
+		} 9> "$STATE/wed.lock" 2>/dev/null || WED_SAVE_BUSY=1
+	else
+		wed_recover_if_idle
+		if [ "$WED_SAVE_BUSY" = 0 ] && [ -z "$WED_RECOVERY_PATH" ]; then
+			wed_configured "$mod"
+		fi
+	fi
+	if [ "$WED_SAVE_BUSY" = 1 ]; then
+		printf '"wed_param":{"module":"%s","active":%s,"configured":null,"saving":true}' "$mod" "$live"
+		return
+	fi
+	if [ -n "$WED_RECOVERY_PATH" ]; then
+		js "$WED_RECOVERY_PATH"
+		printf '"wed_param":{"module":"%s","active":%s,"configured":null,"recovery_path":"%s"}' "$mod" "$live" "$JS"
+		return
+	fi
 	printf '"wed_param":{"module":"%s","active":%s,"configured":%s}' "$mod" "$live" "$WC"
 }
 
@@ -1136,14 +1195,46 @@ fw_bool() {
 	return 1
 }
 
+# Read live fw4 nft flowtable state in a single pass.
+# Sets NFT_SW and NFT_HW to true|false|null; returns 0 iff table inet fw4 was read.
+nft_flow_state() {
+	local out res
+	NFT_SW=null; NFT_HW=null
+	command -v nft >/dev/null 2>&1 || return 1
+	out=$(nft -t list table inet fw4 2>/dev/null 4>&- 7<&-) || return 1
+	res=$(printf '%s\n' "$out" | awk '
+		{ sub(/#.*/, "") }
+		$1 == "table" && $2 == "inet" && $3 == "fw4" { table_seen=1 }
+		$1 == "flowtable" && $2 == "ft" && $3 == "{" { ft=1; sw=1; next }
+		ft && $1 == "}" { ft=0 }
+		ft && $1 == "flags" {
+			for (i=2; i<=NF; i++) {
+				n=split($i, words, /[,;]/)
+				for (j=1; j<=n; j++) if (words[j] == "offload") hw=1
+			}
+		}
+		END {
+			if (!table_seen) exit 1
+			print (sw ? "true" : "false"), (hw ? "true" : "false")
+		}') || return 1
+	NFT_SW=${res% *}
+	NFT_HW=${res#* }
+	return 0
+}
+
 flow_json() {
-	local sw=false hw=false
-	uci_ro_flow
-	if fw_bool "$UCI_FO"; then
-		sw=true
-		fw_bool "$UCI_FOH" && hw=true
+	local sw=null hw=null NFT_SW=null NFT_HW=null
+	if uci_ro_flow; then
+		sw=false
+		hw=false
+		if fw_bool "$UCI_FO"; then
+			sw=true
+			fw_bool "$UCI_FOH" && hw=true
+		fi
 	fi
-	printf '"flow_offload":{"software":%s,"hardware":%s}' "$sw" "$hw"
+	nft_flow_state || true
+	printf '"flow_offload":{"software":%s,"hardware":%s,"live_software":%s,"live_hardware":%s}' \
+		"$sw" "$hw" "$NFT_SW" "$NFT_HW"
 }
 
 get_status() {
@@ -1694,20 +1785,13 @@ EOF
 # A missing ft in a readable fw4 table is a valid disabled state. An nft
 # error (including an unreadable/missing fw4 table) cannot verify either state.
 nft_offload_matches() {
-	local out
-	out=$(nft -t list table inet fw4 2>/dev/null 4>&- 7<&-) || return 1
-	printf '%s\n' "$out" | awk -v want="$1" '
-		{ sub(/#.*/, "") }
-		$1 == "table" && $2 == "inet" && $3 == "fw4" { table_seen=1 }
-		$1 == "flowtable" && $2 == "ft" && $3 == "{" { ft=1; next }
-		ft && $1 == "}" { ft=0 }
-		ft && $1 == "flags" {
-			for (i=2; i<=NF; i++) {
-				n=split($i, words, /[,;]/)
-				for (j=1; j<=n; j++) if (words[j] == "offload") hw=1
-			}
-		}
-		END { exit !(table_seen && (hw+0) == want) }'
+	local NFT_SW NFT_HW
+	nft_flow_state || return 1
+	case "$1" in
+		1) [ "$NFT_HW" = true ] ;;
+		0) [ "$NFT_HW" = false ] ;;
+		*) return 1 ;;
+	esac
 }
 
 # Wait briefly for /var/run/fw4.lock release (shared flock on FD 8, immediately closed).
@@ -1810,16 +1894,17 @@ flow_rollback() {
 	rc=$?
 	CLEANUP_FLOW_APPLY=
 
-	# NO_DATA (5) can mean the daemon already rolled back on timeout. Verify
-	# disk matches the pre-change values and rc is 0 or 5 before waiting.
+	# Fast-exit when disk does not show the pre-change values.
 	uci_ro_flow || return 1
 	[ "$UCI_HAD_FO" = "$had_fo" ] && [ "$UCI_FO" = "$prev_fo" ] &&
 		[ "$UCI_HAD_FOH" = "$had_foh" ] && [ "$UCI_FOH" = "$prev_foh" ] || restored=0
-	[ "$restored" = 1 ] && { [ "$rc" = 0 ] || [ "$rc" = 5 ]; } || return 1
+	[ "$restored" = 1 ] || return 1
 	if fw_bool "$UCI_FO" && fw_bool "$UCI_FOH"; then old_en=1; fi
 
-	if [ "$trigger" = 1 ] && [ "$rc" = 5 ]; then
-		# The timeout event may have completed before we pinned the inode.
+	# Reconcile live runtime whenever disk is restored, including lost replies
+	# (rc!=0) so trigger=0 manual reloads never leave new fw4 rules active.
+	if [ "$trigger" = 1 ] && [ "$rc" != 0 ]; then
+		# The timeout or lost-reply event may have completed before we pinned the inode.
 		if fw4_wait_lock "$FW_RELOAD_WAIT" && nft_offload_matches "$old_en"; then
 			live_ok=1
 		fi
@@ -1828,6 +1913,7 @@ flow_rollback() {
 	if [ "$live_ok" = 0 ] && [ "$pinned" = 1 ] && fw_finish_reload "$old_en" "$wait_cap"; then
 		live_ok=1
 	fi
+	[ "$rc" = 0 ] || [ "$rc" = 5 ] || return 1
 	[ "$live_ok" = 1 ] || return 3
 }
 
@@ -2021,7 +2107,8 @@ wed_rewrite() {
 # hidden in the destination directory: rename/rollback stay on one filesystem,
 # and kmodloader never mistakes a leftover staging file for an autoload entry.
 wed_stage() {
-	local mod="$1" val="$2" f target conf tmp old step seen="$NL" i=0 shared=0 conf_target
+	local mod="$1" val="$2" f target conf tmp old step seen="$NL" i=0 shared=0 conf_target tag=${WED_TXN##*.}
+	case "$tag" in ''|*[!A-Za-z0-9_]*) tag=$$ ;; esac
 	conf_target=$(readlink -f "$MODCONF") || return 1
 	for f in "$R"/etc/modules-boot.d/* "$R"/etc/modules.d/*; do
 		[ -f "$f" ] || continue
@@ -2065,11 +2152,11 @@ wed_stage() {
 		i=$((i + 1)); step="$WED_TXN/$i"
 		mkdir "$step" || return 1
 		printf '%s\n' "$target" > "$step/path" || return 1
-		tmp=$(mktemp "${target%/*}/.mtkw-new.XXXXXX" 2>/dev/null) || return 1
+		tmp=$(mktemp "${target%/*}/.mtkw-new.$tag.XXXXXX" 2>/dev/null) || return 1
 		cleanup_add "$tmp"
 		printf '%s\n' "$tmp" > "$step/new" && cleanup_del "$tmp" || { rm -f "$tmp"; cleanup_del "$tmp"; return 1; }
 		if [ -f "$target" ]; then
-			old=$(mktemp "${target%/*}/.mtkw-old.XXXXXX" 2>/dev/null) || return 1
+			old=$(mktemp "${target%/*}/.mtkw-old.$tag.XXXXXX" 2>/dev/null) || return 1
 			cleanup_add "$old"
 			printf '%s\n' "$old" > "$step/old" && cleanup_del "$old" || { rm -f "$old"; cleanup_del "$old"; return 1; }
 			cp -p "$target" "$old" && cp -p "$target" "$tmp" || return 1
@@ -2081,61 +2168,312 @@ wed_stage() {
 	done
 }
 
-wed_cleanup() {
-	local step file
-	for step in "$WED_TXN"/*; do
-		[ -d "$step" ] || continue
-		for file in new old; do rd "$step/$file"; [ -z "$RD" ] || rm -f "$RD"; done
+wed_write_state() {
+	local dir="$1" st="$2"
+	printf '%s\n' "$st" > "$dir/.state.tmp" 2>/dev/null && mv -f "$dir/.state.tmp" "$dir/state" 2>/dev/null
+}
+
+# True when $1 contains no entries at all, or only a regular non-symlink
+# .state.tmp file (e.g. SIGKILL right after mktemp -d or before mv .state.tmp state).
+wed_dir_is_empty() {
+	local d="$1" f
+	for f in "$d"/* "$d"/.[!.]* "$d"/..?*; do
+		[ -e "$f" ] || [ -L "$f" ] || continue
+		if [ "$f" = "$d/.state.tmp" ] && [ -f "$f" ] && [ ! -L "$f" ]; then
+			continue
+		fi
+		return 1
 	done
-	rm -rf "$WED_TXN"
-	[ "$CLEANUP_WED_TXN" = "$WED_TXN" ] && CLEANUP_WED_TXN=
 	return 0
 }
 
-set_wed_enable() {
-	local en mod val=N step target tmp old index applied= failed=0 restore_failed=0 WED_TXN
+# Collect numeric step subdirs in $1 in true descending numeric order into $WED_REV.
+# Sets WED_STEP_COUNT to the number of numeric step subdirs found.
+wed_collect_rev_steps() {
+	local d="$1" step idx
+	WED_REV=
+	WED_STEP_COUNT=0
+	for step in "$d"/[0-9]*; do
+		[ -d "$step" ] || continue
+		idx=${step##*/}
+		case "$idx" in ''|*[!0-9]*) continue ;; esac
+		WED_STEP_COUNT=$((WED_STEP_COUNT + 1))
+	done
+	[ "$WED_STEP_COUNT" -gt 0 ] || return 0
+	WED_REV=$(for step in "$d"/[0-9]*; do
+		[ -d "$step" ] || continue
+		idx=${step##*/}
+		case "$idx" in ''|*[!0-9]*) continue ;; esac
+		printf '%s\n' "$idx"
+	done | sort -rn | tr '\n' ' ')
+	WED_REV=${WED_REV% }
+}
+
+wed_restore() {
+	local idx step target tmp old
+	WED_RESTORE_FAILED=0
+	for idx in $CLEANUP_WED_REV_STEPS; do
+		step="$WED_TXN/$idx"
+		if [ ! -d "$step" ]; then
+			WED_RESTORE_FAILED=1
+			continue
+		fi
+		[ ! -f "$step/restored" ] || continue
+		rd "$step/path"; target=$RD
+		rd "$step/new"; tmp=$RD
+		if [ -z "$target" ] || [ -z "$tmp" ]; then
+			WED_RESTORE_FAILED=1
+			continue
+		fi
+		# When mv -f "$tmp" "$target" succeeded, the staged file $tmp is gone.
+		[ ! -e "$tmp" ] || continue
+		if [ -f "$step/old" ]; then
+			rd "$step/old"; old=$RD
+			if [ -n "$old" ] && [ -e "$old" ] && mv -f "$old" "$target" 2>/dev/null; then
+				: > "$step/restored" 2>/dev/null
+			else
+				WED_RESTORE_FAILED=1
+			fi
+		else
+			if rm -f "$target" 2>/dev/null; then
+				: > "$step/restored" 2>/dev/null
+			else
+				WED_RESTORE_FAILED=1
+			fi
+		fi
+	done
+}
+
+wed_cleanup() {
+	local step file tag=${WED_TXN##*.} dir
+	case "$tag" in ''|*[!A-Za-z0-9_]*) tag= ;; esac
+	for step in "$WED_TXN"/[0-9]*; do
+		[ -d "$step" ] || continue
+		for file in new old; do rd "$step/$file"; [ -z "$RD" ] || rm -f "$RD"; done
+		if [ -n "$tag" ]; then
+			rd "$step/path"
+			if [ -n "$RD" ]; then
+				dir=${RD%/*}
+				rm -f "$dir"/.mtkw-new."$tag".* "$dir"/.mtkw-old."$tag".* 2>/dev/null
+			fi
+		fi
+		rm -rf "$step" 2>/dev/null
+	done
+	rm -f "$WED_TXN/steps" "$WED_TXN/rev_steps" "$WED_TXN/.state.tmp" 2>/dev/null
+	rm -f "$WED_TXN/state" 2>/dev/null
+	rm -rf "$WED_TXN"
+	if [ "$CLEANUP_WED_TXN" = "$WED_TXN" ]; then
+		CLEANUP_WED_TXN=
+		CLEANUP_WED_COMMITTING=0
+		CLEANUP_WED_REV_STEPS=
+	fi
+	return 0
+}
+
+# Recover interrupted $STATE/wed-save.* journals (e.g. SIGKILL from rpcd exec timeout
+# or legacy 2.0.0-4 journals without a state file).
+# Caller MUST already hold $STATE/settings.lock on FD 4.
+# Sets WED_RECOVERY_PATH and returns 1 if any transaction cannot be safely restored.
+wed_recover_pending() {
+	local d st step idx target tmp old ok f
+	local WED_TXN WED_RESTORE_FAILED=0 CLEANUP_WED_REV_STEPS= WED_REV= WED_STEP_COUNT=0 rc=0
+	WED_RECOVERY_PATH=
+	for d in "$STATE"/wed-save.*; do
+		[ -d "$d" ] || continue
+		WED_TXN=$d
+		if [ -e "$d/state" ]; then
+			rd "$d/state"; st=$RD
+			case "$st" in
+				staging|committed)
+					wed_cleanup
+					;;
+				committing|restore_failed)
+					rd "$d/rev_steps"; CLEANUP_WED_REV_STEPS=$RD
+					if [ -z "$CLEANUP_WED_REV_STEPS" ]; then
+						wed_collect_rev_steps "$d"
+						CLEANUP_WED_REV_STEPS=$WED_REV
+					fi
+					if [ -z "$CLEANUP_WED_REV_STEPS" ]; then
+						WED_RESTORE_FAILED=1
+					else
+						wed_restore
+					fi
+					if [ "$WED_RESTORE_FAILED" = 1 ]; then
+						wed_write_state "$d" restore_failed
+						[ -n "$WED_RECOVERY_PATH" ] || WED_RECOVERY_PATH=$d
+						rc=1
+					else
+						wed_cleanup
+					fi
+					;;
+				*)
+					# Corrupt, empty, or unrecognized state: preserve untouched.
+					[ -n "$WED_RECOVERY_PATH" ] || WED_RECOVERY_PATH=$d
+					rc=1
+					;;
+			esac
+		elif wed_dir_is_empty "$d"; then
+			# Pre-stage dir (strictly empty or only regular .state.tmp before mv to state).
+			wed_cleanup
+		else
+			# Non-empty dir without state (e.g. legacy 2.0.0-4 journal):
+			# restore only when progress is unambiguously identifiable and restorable;
+			# otherwise preserve $d and all backups untouched.
+			wed_collect_rev_steps "$d"
+			ok=1
+			[ "$WED_STEP_COUNT" -gt 0 ] || ok=0
+			if [ "$ok" = 1 ]; then
+				for f in "$d"/* "$d"/.[!.]* "$d"/..?*; do
+					[ -e "$f" ] || [ -L "$f" ] || continue
+					idx=${f##*/}
+					case "$idx" in ''|*[!0-9]*) ok=0; break ;; esac
+					[ -d "$f" ] || { ok=0; break; }
+				done
+			fi
+			if [ "$ok" = 1 ]; then
+				for idx in $WED_REV; do
+					step="$d/$idx"
+					rd "$step/path"; target=$RD
+					rd "$step/new"; tmp=$RD
+					if [ -z "$target" ] || [ -z "$tmp" ]; then
+						ok=0; break
+					fi
+					if [ ! -e "$tmp" ] && [ ! -f "$step/restored" ] && [ -f "$step/old" ]; then
+						rd "$step/old"; old=$RD
+						if [ -z "$old" ] || [ ! -e "$old" ]; then
+							ok=0; break
+						fi
+					fi
+				done
+			fi
+			if [ "$ok" = 1 ]; then
+				CLEANUP_WED_REV_STEPS=$WED_REV
+				wed_restore
+				if [ "$WED_RESTORE_FAILED" = 1 ]; then
+					wed_write_state "$d" restore_failed
+					[ -n "$WED_RECOVERY_PATH" ] || WED_RECOVERY_PATH=$d
+					rc=1
+				else
+					wed_cleanup
+				fi
+			else
+				[ -n "$WED_RECOVERY_PATH" ] || WED_RECOVERY_PATH=$d
+				rc=1
+			fi
+		fi
+	done
+	return "$rc"
+}
+
+# Zero-overhead recovery & busy probe for getStatus:
+# - Called while holding shared FD 9 on $STATE/wed.lock when writable.
+# - Sets WED_SAVE_BUSY=1 if a wed-save.* journal exists and settings.lock is
+#   busy or $STATE is unwritable (never reporting an intermediate state).
+# - Otherwise recovers any leftover $STATE/wed-save.* journals under settings.lock.
+wed_recover_if_idle() {
+	local d found=0
+	WED_RECOVERY_PATH=
+	WED_SAVE_BUSY=0
+	for d in "$STATE"/wed-save.*; do
+		[ -d "$d" ] && { found=1; break; }
+	done
+	[ "$found" = 1 ] || return 0
+	if [ ! -d "$STATE" ] || [ ! -w "$STATE" ]; then
+		WED_SAVE_BUSY=1
+		return 0
+	fi
+	{
+		if ! flock_wait x 4 0; then
+			WED_SAVE_BUSY=1
+			return 0
+		fi
+		wed_recover_pending || true
+	} 4> "$STATE/settings.lock"
+	return 0
+}
+
+set_wed_enable_body() {
+	local en mod val=N step idx steps= rev_steps= target tmp failed=0 WED_RESTORE_FAILED=0 WED_RECOVERY_PATH= WED_REV= WED_STEP_COUNT=0 WED_TXN
 	local WED_STAGE_ERROR='cannot prepare the WED settings'
 	en=$(json_input "$1" enabled)
 	case "$en" in 0|1) ;; *) printf '{"error":"enabled must be 0 or 1"}'; return ;; esac
+	if ! wed_recover_pending; then
+		js "$WED_RECOVERY_PATH"
+		printf '{"error":"cannot save or restore the WED settings; recovery files: %s"}' "$JS"
+		return
+	fi
 	[ "$en" = 1 ] && val=Y
 	mod=$(wed_module)
 	WED_TXN=$(mktemp -d "$STATE/wed-save.XXXXXX" 2>/dev/null) ||
 		{ printf '{"error":"cannot prepare the WED settings"}'; return; }
 	CLEANUP_WED_TXN=$WED_TXN
+	CLEANUP_WED_COMMITTING=0
+	CLEANUP_WED_REV_STEPS=
+	wed_write_state "$WED_TXN" staging || { wed_cleanup; printf '{"error":"cannot prepare the WED settings"}'; return; }
 	if ! wed_stage "$mod" "$val"; then
 		wed_cleanup
 		printf '{"error":"%s"}' "$WED_STAGE_ERROR"
 		return
 	fi
-	for step in "$WED_TXN"/*; do
+	wed_collect_rev_steps "$WED_TXN"
+	rev_steps=$WED_REV
+	for idx in $rev_steps; do
+		steps="$idx${steps:+ $steps}"
+	done
+	if ! { printf '%s\n' "$steps" > "$WED_TXN/steps" &&
+		printf '%s\n' "$rev_steps" > "$WED_TXN/rev_steps" &&
+		wed_write_state "$WED_TXN" committing; } 2>/dev/null; then
+		wed_cleanup
+		printf '{"error":"cannot prepare the WED settings"}'
+		return
+	fi
+	CLEANUP_WED_REV_STEPS=$rev_steps
+	CLEANUP_WED_COMMITTING=1
+	for idx in $steps; do
+		step="$WED_TXN/$idx"
 		rd "$step/path"; target=$RD
 		rd "$step/new"; tmp=$RD
-		if ! mv -f "$tmp" "$target"; then failed=1; break; fi
-		# Tracking successful renames must not depend on another file write.
-		applied="${step##*/} $applied"
+		if ! mv -f "$tmp" "$target" 2>/dev/null; then failed=1; break; fi
 	done
 	if [ "$failed" = 1 ]; then
-		for index in $applied; do
-			step="$WED_TXN/$index"
-			rd "$step/path"; target=$RD
-			rd "$step/old"; old=$RD
-			if [ -n "$old" ]; then mv -f "$old" "$target" || restore_failed=1
-			else rm -f "$target" || restore_failed=1
-			fi
-		done
-		if [ "$restore_failed" = 1 ]; then
+		wed_restore
+		if [ "$WED_RESTORE_FAILED" = 1 ]; then
 			# Keep the originals and path mappings if a restore also failed.
+			wed_write_state "$WED_TXN" restore_failed
 			CLEANUP_WED_TXN=
+			CLEANUP_WED_COMMITTING=0
+			CLEANUP_WED_REV_STEPS=
 			js "$WED_TXN"
 			printf '{"error":"cannot save or restore the WED settings; recovery files: %s"}' "$JS"
 		else
+			CLEANUP_WED_COMMITTING=0
 			wed_cleanup
 			printf '{"error":"cannot save the WED settings; previous settings restored"}'
 		fi
 		return
 	fi
+	wed_write_state "$WED_TXN" committed
+	CLEANUP_WED_COMMITTING=0
 	wed_cleanup
 	printf '{"result":"ok","enabled":%s,"module":"%s","reboot_required":true}' "$en" "$mod"
+}
+
+set_wed_enable() {
+	local rc
+	[ -d "$STATE" ] || mkdir -p -m 0700 "$STATE" 2>/dev/null
+	{
+		flock_wait x 9 "$SETTINGS_LOCK_WAIT"
+		rc=$?
+		if [ "$rc" = 1 ]; then
+			printf '{"error":"another save is in progress"}'
+			return 0
+		elif [ "$rc" != 0 ]; then
+			printf '{"error":"cannot lock the settings"}'
+			return 0
+		fi
+		set_wed_enable_body "$1"
+		return 0
+	} 9> "$STATE/wed.lock" || printf '{"error":"cannot lock the settings"}'
 }
 
 cpu_restore() {
@@ -2195,12 +2533,18 @@ set_cpu_settings() {
 		fi
 	done
 	[ "$i" -gt 0 ] || { rm -rf "$txn"; cleanup_del "$txn"; printf '{"error":"cannot apply the CPU settings"}'; return; }
+	CLEANUP_CPU_TXN=$txn
+	CLEANUP_CPU_APPLIED=
+	CLEANUP_CPU_GOV=$gov
+	CLEANUP_CPU_FREQ=$freq
+	CLEANUP_CPU_COMMITTING=1
 	for step in "$txn"/[0-9]*; do
 		[ -d "$step" ] || continue
 		rd "$step/path"; p=$RD
 		rd "$step/do_gov"; p_gov=$RD
 		rd "$step/do_freq"; p_freq=$RD
 		applied="${step##*/} $applied"
+		CLEANUP_CPU_APPLIED=$applied
 		if [ "$p_gov" = 1 ]; then
 			if ! printf '%s\n' "$gov" 2>/dev/null > "$p/scaling_governor"; then failed=1; break; fi
 		fi
@@ -2210,6 +2554,11 @@ set_cpu_settings() {
 	done
 	if [ "$failed" = 1 ]; then
 		cpu_restore "$txn" "$applied"
+		CLEANUP_CPU_COMMITTING=0
+		CLEANUP_CPU_TXN=
+		CLEANUP_CPU_APPLIED=
+		CLEANUP_CPU_GOV=
+		CLEANUP_CPU_FREQ=
 		rm -rf "$txn"; cleanup_del "$txn"
 		if [ "$CPU_RESTORE_FAILED" = 1 ]; then
 			printf '{"error":"saving the CPU settings failed and restoring previous settings also failed"}'
@@ -2218,8 +2567,15 @@ set_cpu_settings() {
 		fi
 		return
 	fi
+	CLEANUP_CPU_COMMITTING=2
 	if ! uci_pkg_apply mtk_wed 'set:cpu=cpu' "set:cpu.governor=$gov" "set:cpu.max_freq=$freq"; then
+		CLEANUP_CPU_COMMITTING=1
 		cpu_restore "$txn" "$applied"
+		CLEANUP_CPU_COMMITTING=0
+		CLEANUP_CPU_TXN=
+		CLEANUP_CPU_APPLIED=
+		CLEANUP_CPU_GOV=
+		CLEANUP_CPU_FREQ=
 		rm -rf "$txn"; cleanup_del "$txn"
 		if [ "$CPU_RESTORE_FAILED" = 1 ]; then
 			printf '{"error":"saving the CPU settings failed and restoring previous settings also failed"}'
@@ -2228,6 +2584,11 @@ set_cpu_settings() {
 		fi
 		return
 	fi
+	CLEANUP_CPU_COMMITTING=0
+	CLEANUP_CPU_TXN=
+	CLEANUP_CPU_APPLIED=
+	CLEANUP_CPU_GOV=
+	CLEANUP_CPU_FREQ=
 	rm -rf "$txn"; cleanup_del "$txn"
 	printf '{"result":"ok","governor":"%s","freq":%s}' "$gov" "$freq"
 }

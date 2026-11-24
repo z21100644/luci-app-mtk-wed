@@ -3,7 +3,7 @@
 include $(TOPDIR)/rules.mk
 
 PKG_VERSION:=2.0.0
-PKG_RELEASE:=3
+PKG_RELEASE:=7
 
 LUCI_TITLE:=LuCI status page for MediaTek PPE / WED hardware offload
 LUCI_DESCRIPTION:=Shows the MediaTek Filogic PPE flow table, WED (Wi-Fi offload) \
@@ -14,7 +14,7 @@ LUCI_PKGARCH:=all
 
 # Disable legacy csstidy (breaks CSS custom properties, calc() spacing, @keyframes)
 LUCI_MINIFY_CSS:=0
-CONFIG_LUCI_CSSTIDY:=
+override CONFIG_LUCI_CSSTIDY:=
 
 PKG_LICENSE:=Apache-2.0
 PKG_MAINTAINER:=z21100644
