@@ -2210,7 +2210,8 @@ wed_collect_rev_steps() {
 }
 
 wed_restore() {
-	local idx step target tmp old
+	local idx step target tmp old rtmp tag=${WED_TXN##*.}
+	case "$tag" in ''|*[!A-Za-z0-9_]*) tag=$$ ;; esac
 	WED_RESTORE_FAILED=0
 	for idx in $CLEANUP_WED_REV_STEPS; do
 		step="$WED_TXN/$idx"
@@ -2229,7 +2230,23 @@ wed_restore() {
 		[ ! -e "$tmp" ] || continue
 		if [ -f "$step/old" ]; then
 			rd "$step/old"; old=$RD
-			if [ -n "$old" ] && [ -e "$old" ] && mv -f "$old" "$target" 2>/dev/null; then
+			if [ -z "$old" ] || [ ! -e "$old" ]; then
+				WED_RESTORE_FAILED=1
+				continue
+			fi
+			rtmp=$(mktemp "${target%/*}/.mtkw-old.$tag.XXXXXX" 2>/dev/null)
+			if [ -n "$rtmp" ]; then
+				cleanup_add "$rtmp"
+				if cp -p "$old" "$rtmp" 2>/dev/null && mv -f "$rtmp" "$target" 2>/dev/null; then
+					cleanup_del "$rtmp"
+					: > "$step/restored" 2>/dev/null
+					continue
+				fi
+				rm -f "$rtmp" 2>/dev/null
+				cleanup_del "$rtmp"
+			fi
+			# Fallback to direct rename only if copy failed (e.g. 0-byte-free overlayfs).
+			if mv -f "$old" "$target" 2>/dev/null; then
 				: > "$step/restored" 2>/dev/null
 			else
 				WED_RESTORE_FAILED=1

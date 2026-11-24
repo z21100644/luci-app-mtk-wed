@@ -2,8 +2,8 @@
 
 include $(TOPDIR)/rules.mk
 
-PKG_VERSION:=2.0.0
-PKG_RELEASE:=7
+PKG_VERSION:=2.1.0
+PKG_RELEASE:=1
 
 LUCI_TITLE:=LuCI status page for MediaTek PPE / WED hardware offload
 LUCI_DESCRIPTION:=Shows the MediaTek Filogic PPE flow table, WED (Wi-Fi offload) \
