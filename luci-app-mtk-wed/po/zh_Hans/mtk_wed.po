@@ -3,45 +3,71 @@ msgstr ""
 "Content-Type: text/plain; charset=UTF-8\n"
 "Language: zh_Hans\n"
 
+#, c-format
 msgid "%d / %d bound"
 msgstr "已绑定 %d / %d"
 
+#, c-format
+msgid "%d / %d bound (stale)"
+msgstr "已绑定 %d / %d（过期）"
+
+#, c-format
 msgid "%d / %d up"
 msgstr "%d / %d 已连接"
 
+#, c-format
 msgid "%d PPE · %s"
 msgstr "%d 个 PPE 引擎 · %s"
 
+#, c-format
+msgid "%d PPE · Stale (last %s)"
+msgstr "%d 个 PPE · 数据过期（最后更新 %s）"
+
+#, c-format
 msgid "%d band links"
 msgstr "%d 条频段链路"
 
+#, c-format
 msgid "%d clients"
 msgstr "%d 个客户端"
 
+#, c-format
 msgid "%d err"
 msgstr "%d 错误"
 
+#, c-format
 msgid "%d links"
 msgstr "%d 链路"
 
+#, c-format
 msgid "%d port errors"
 msgstr "%d 端口错误"
 
+#, c-format
 msgid "%d ports"
 msgstr "%d 端口"
 
+#, c-format
 msgid "%d unique"
 msgstr "全局唯一 %d"
 
+#, c-format
 msgid "%d visible on page"
 msgstr "当前页显示 %d 条"
 
+#, c-format
 msgid "%d–%d of %d"
 msgstr "第 %d–%d 条，共 %d 条"
 
+#, c-format
+msgid "%s ago"
+msgstr "%s 前"
+
+#, c-format
 msgid "%s errors"
 msgstr "%s 错误"
 
+#, c-format
 msgid "%s errors/dropped"
 msgstr "%s 错误/丢弃"
 
@@ -69,6 +95,7 @@ msgstr "所有类型"
 msgid "All-in-One"
 msgstr "全部展开 (All-in-One)"
 
+#, c-format
 msgid "Applied %s · %s"
 msgstr "已应用 %s · %s"
 
@@ -78,6 +105,7 @@ msgstr "架构"
 msgid "Automatic rollback could not complete. Inspect the recovery directory above on the router before rebooting."
 msgstr "自动回滚未能完成。请先在路由器上检查上述恢复目录，再重新启动。"
 
+#, c-format
 msgid "Avg %s"
 msgstr "平均负载 %s"
 
@@ -93,6 +121,9 @@ msgstr "后台已暂停"
 msgid "Band"
 msgstr "频段"
 
+msgid "Band-to-WED pairing is estimated on multi-WED hardware."
+msgstr "多组 WED 硬件上的频段配对关系为估算结果。"
+
 msgid "Bidirectional TX and RX wireless hardware offload active with WO firmware."
 msgstr "已通过 WO 固件启用 TX 和 RX 双向无线硬件卸载。"
 
@@ -102,6 +133,7 @@ msgstr "绑定率"
 msgid "Bound"
 msgstr "已绑定"
 
+#, c-format
 msgid "Built %s"
 msgstr "构建于 %s"
 
@@ -123,15 +155,19 @@ msgstr "此设备不支持 CPU 调频"
 msgid "CPU settings saved — they will persist after a reboot"
 msgstr "CPU 设置已保存，重新启动后仍会保留"
 
+#, c-format
 msgid "CPU%d sampling"
 msgstr "CPU%d 采样中"
 
+#, c-format
 msgid "CPU%d total %s, User/Sys %s, SoftIRQ %s"
 msgstr "CPU%d 总使用率 %s，常规负载 %s，SoftIRQ 软中断 %s"
 
+#, c-format
 msgid "Cannot read status from the luci.mtk_wed backend: %s"
 msgstr "无法从 luci.mtk_wed 后端读取状态：%s"
 
+#, c-format
 msgid "Cannot read the Wi-Fi statistics: %s"
 msgstr "无法读取 Wi-Fi 统计：%s"
 
@@ -186,6 +222,7 @@ msgstr "连接异常"
 msgid "Copied"
 msgstr "已复制"
 
+#, c-format
 msgid "Copied %s"
 msgstr "已复制 %s"
 
@@ -258,11 +295,15 @@ msgstr "启用 (Y)"
 msgid "Error"
 msgstr "错误"
 
+#, c-format
 msgid "Error: %s"
 msgstr "错误：%s"
 
 msgid "Errors / Dropped"
 msgstr "错误 / 丢弃"
+
+msgid "Estimated"
+msgstr "估算"
 
 msgid "Ethernet Ports"
 msgstr "以太网端口"
@@ -270,6 +311,7 @@ msgstr "以太网端口"
 msgid "Ethernet Ports & GDM MAC Counters"
 msgstr "以太网端口与 GDM MAC 计数"
 
+#, c-format
 msgid "Every %d s"
 msgstr "每 %d 秒"
 
@@ -285,6 +327,7 @@ msgstr "保存 WED 设置失败"
 msgid "Fair"
 msgstr "尚可"
 
+#, c-format
 msgid "Filter %s flows"
 msgstr "筛选 %s 流量"
 
@@ -384,6 +427,7 @@ msgstr "MLO 采样不完整"
 msgid "Index"
 msgstr "索引"
 
+#, c-format
 msgid "Inspect %s band"
 msgstr "查看 %s 频段详情"
 
@@ -417,6 +461,9 @@ msgstr "L2 以太网（eth MAC）"
 msgid "Last complete per-band TX rates are preserved."
 msgstr "已保留上一次完整采样的各频段 TX 速率。"
 
+msgid "Last updated"
+msgstr "最后更新"
+
 msgid "Link down"
 msgstr "未连接"
 
@@ -441,6 +488,7 @@ msgstr "实时 fw4 规则"
 msgid "Live · 5s"
 msgstr "实时更新 · 5s"
 
+#, c-format
 msgid "Load %s"
 msgstr "负载 %s"
 
@@ -468,15 +516,18 @@ msgstr "MIB 错误"
 msgid "MIB unavailable"
 msgstr "MIB 不可用"
 
+#, c-format
 msgid "MLO devices connect across multiple bands simultaneously, so summed band links (%d) exceed unique stations (%d)."
 msgstr "MLO 设备会同时连接到多个频段，因此各频段链路总和（%d）大于全局唯一客户端数（%d）。"
 
+#, c-format
 msgid "MLO · %d links"
 msgstr "MLO · %d 条链路"
 
 msgid "Max"
 msgstr "上限"
 
+#, c-format
 msgid "Max %s"
 msgstr "上限 %s"
 
@@ -602,6 +653,9 @@ msgstr "PPE 流量表"
 
 msgid "PPE debugfs not found"
 msgstr "未找到 PPE debugfs"
+
+msgid "PPE read failed"
+msgstr "PPE 读取失败"
 
 msgid "PPE table unavailable"
 msgstr "无法获取 PPE 流量表"
@@ -759,6 +813,7 @@ msgstr "保存"
 msgid "Saved config"
 msgstr "已保存配置"
 
+#, c-format
 msgid "Saved config: %s · Live fw4 rule: %s"
 msgstr "已保存配置：%s · 实时 fw4 规则：%s"
 
@@ -780,6 +835,7 @@ msgstr "查看链路详情"
 msgid "Signal"
 msgstr "信号"
 
+#, c-format
 msgid "Snapshot %ds ago"
 msgstr "快照于 %d 秒前"
 
@@ -798,6 +854,7 @@ msgstr "软件转发 · SoftIRQ 低"
 msgid "Software forwarding · PPE bypassed"
 msgstr "软件转发模式 · PPE 旁路"
 
+#, c-format
 msgid "Software offload: %s · PPE engines: %d"
 msgstr "软件卸载：%s · PPE 引擎：%d 个"
 
@@ -815,6 +872,13 @@ msgstr "部分 Wi-Fi 数据无法读取或保存；速率可能不完整。"
 
 msgid "Speed / Duplex"
 msgstr "速率 / 双工"
+
+msgid "Stale"
+msgstr "过期"
+
+#, c-format
+msgid "Stale · %s ago"
+msgstr "过期 · %s 前"
 
 msgid "State"
 msgstr "状态"
@@ -987,12 +1051,16 @@ msgstr "无法读取 PPE 流量表"
 msgid "cannot read the PPE snapshot"
 msgstr "无法读取 PPE 快照"
 
+msgid "cannot restore previous CPU settings"
+msgstr "无法恢复先前的 CPU 设置"
+
 msgid "cannot safely save WED settings with oversized configuration lines"
 msgstr "WED 配置行过长，无法安全保存设置"
 
 msgid "cannot safely save WED settings with quotes spanning lines or files"
 msgstr "WED 参数的引号跨越行或文件，无法安全保存设置"
 
+#, c-format
 msgid "cannot save or restore the WED settings; recovery files: %s"
 msgstr "无法保存或恢复 WED 设置；恢复文件：%s"
 

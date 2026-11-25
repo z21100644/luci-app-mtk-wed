@@ -2,45 +2,71 @@ msgid ""
 msgstr ""
 "Content-Type: text/plain; charset=UTF-8\n"
 
+#, c-format
 msgid "%d / %d bound"
 msgstr ""
 
+#, c-format
+msgid "%d / %d bound (stale)"
+msgstr ""
+
+#, c-format
 msgid "%d / %d up"
 msgstr ""
 
+#, c-format
 msgid "%d PPE · %s"
 msgstr ""
 
+#, c-format
+msgid "%d PPE · Stale (last %s)"
+msgstr ""
+
+#, c-format
 msgid "%d band links"
 msgstr ""
 
+#, c-format
 msgid "%d clients"
 msgstr ""
 
+#, c-format
 msgid "%d err"
 msgstr ""
 
+#, c-format
 msgid "%d links"
 msgstr ""
 
+#, c-format
 msgid "%d port errors"
 msgstr ""
 
+#, c-format
 msgid "%d ports"
 msgstr ""
 
+#, c-format
 msgid "%d unique"
 msgstr ""
 
+#, c-format
 msgid "%d visible on page"
 msgstr ""
 
+#, c-format
 msgid "%d–%d of %d"
 msgstr ""
 
+#, c-format
+msgid "%s ago"
+msgstr ""
+
+#, c-format
 msgid "%s errors"
 msgstr ""
 
+#, c-format
 msgid "%s errors/dropped"
 msgstr ""
 
@@ -68,6 +94,7 @@ msgstr ""
 msgid "All-in-One"
 msgstr ""
 
+#, c-format
 msgid "Applied %s · %s"
 msgstr ""
 
@@ -77,6 +104,7 @@ msgstr ""
 msgid "Automatic rollback could not complete. Inspect the recovery directory above on the router before rebooting."
 msgstr ""
 
+#, c-format
 msgid "Avg %s"
 msgstr ""
 
@@ -92,6 +120,9 @@ msgstr ""
 msgid "Band"
 msgstr ""
 
+msgid "Band-to-WED pairing is estimated on multi-WED hardware."
+msgstr ""
+
 msgid "Bidirectional TX and RX wireless hardware offload active with WO firmware."
 msgstr ""
 
@@ -101,6 +132,7 @@ msgstr ""
 msgid "Bound"
 msgstr ""
 
+#, c-format
 msgid "Built %s"
 msgstr ""
 
@@ -122,15 +154,19 @@ msgstr ""
 msgid "CPU settings saved — they will persist after a reboot"
 msgstr ""
 
+#, c-format
 msgid "CPU%d sampling"
 msgstr ""
 
+#, c-format
 msgid "CPU%d total %s, User/Sys %s, SoftIRQ %s"
 msgstr ""
 
+#, c-format
 msgid "Cannot read status from the luci.mtk_wed backend: %s"
 msgstr ""
 
+#, c-format
 msgid "Cannot read the Wi-Fi statistics: %s"
 msgstr ""
 
@@ -185,6 +221,7 @@ msgstr ""
 msgid "Copied"
 msgstr ""
 
+#, c-format
 msgid "Copied %s"
 msgstr ""
 
@@ -257,10 +294,14 @@ msgstr ""
 msgid "Error"
 msgstr ""
 
+#, c-format
 msgid "Error: %s"
 msgstr ""
 
 msgid "Errors / Dropped"
+msgstr ""
+
+msgid "Estimated"
 msgstr ""
 
 msgid "Ethernet Ports"
@@ -269,6 +310,7 @@ msgstr ""
 msgid "Ethernet Ports & GDM MAC Counters"
 msgstr ""
 
+#, c-format
 msgid "Every %d s"
 msgstr ""
 
@@ -284,6 +326,7 @@ msgstr ""
 msgid "Fair"
 msgstr ""
 
+#, c-format
 msgid "Filter %s flows"
 msgstr ""
 
@@ -383,6 +426,7 @@ msgstr ""
 msgid "Index"
 msgstr ""
 
+#, c-format
 msgid "Inspect %s band"
 msgstr ""
 
@@ -416,6 +460,9 @@ msgstr ""
 msgid "Last complete per-band TX rates are preserved."
 msgstr ""
 
+msgid "Last updated"
+msgstr ""
+
 msgid "Link down"
 msgstr ""
 
@@ -440,6 +487,7 @@ msgstr ""
 msgid "Live · 5s"
 msgstr ""
 
+#, c-format
 msgid "Load %s"
 msgstr ""
 
@@ -467,15 +515,18 @@ msgstr ""
 msgid "MIB unavailable"
 msgstr ""
 
+#, c-format
 msgid "MLO devices connect across multiple bands simultaneously, so summed band links (%d) exceed unique stations (%d)."
 msgstr ""
 
+#, c-format
 msgid "MLO · %d links"
 msgstr ""
 
 msgid "Max"
 msgstr ""
 
+#, c-format
 msgid "Max %s"
 msgstr ""
 
@@ -600,6 +651,9 @@ msgid "PPE Flows"
 msgstr ""
 
 msgid "PPE debugfs not found"
+msgstr ""
+
+msgid "PPE read failed"
 msgstr ""
 
 msgid "PPE table unavailable"
@@ -758,6 +812,7 @@ msgstr ""
 msgid "Saved config"
 msgstr ""
 
+#, c-format
 msgid "Saved config: %s · Live fw4 rule: %s"
 msgstr ""
 
@@ -779,6 +834,7 @@ msgstr ""
 msgid "Signal"
 msgstr ""
 
+#, c-format
 msgid "Snapshot %ds ago"
 msgstr ""
 
@@ -797,6 +853,7 @@ msgstr ""
 msgid "Software forwarding · PPE bypassed"
 msgstr ""
 
+#, c-format
 msgid "Software offload: %s · PPE engines: %d"
 msgstr ""
 
@@ -813,6 +870,13 @@ msgid "Some Wi-Fi data could not be read or saved; the rates may be incomplete."
 msgstr ""
 
 msgid "Speed / Duplex"
+msgstr ""
+
+msgid "Stale"
+msgstr ""
+
+#, c-format
+msgid "Stale · %s ago"
 msgstr ""
 
 msgid "State"
@@ -986,12 +1050,16 @@ msgstr ""
 msgid "cannot read the PPE snapshot"
 msgstr ""
 
+msgid "cannot restore previous CPU settings"
+msgstr ""
+
 msgid "cannot safely save WED settings with oversized configuration lines"
 msgstr ""
 
 msgid "cannot safely save WED settings with quotes spanning lines or files"
 msgstr ""
 
+#, c-format
 msgid "cannot save or restore the WED settings; recovery files: %s"
 msgstr ""
 

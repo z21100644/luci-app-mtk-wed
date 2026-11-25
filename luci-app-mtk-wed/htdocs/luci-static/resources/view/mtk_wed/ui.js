@@ -818,6 +818,12 @@ function parseSelectedKey(sel) {
 	return { kind: s.slice(0, idx), id: s.slice(idx + 1) };
 }
 
+function resolveBandWedId(b) {
+	if (!b) return null;
+	if (b.wedId === null) return null;
+	return b.wedId !== undefined ? b.wedId : b.band;
+}
+
 function computeTopologyRelations(sel, ports, gdmStats, ppeList, wedList, wifiBands) {
 	if (!sel) return null;
 	var rel = { port: {}, gdm: {}, ppe: {}, wed: {}, wifi: {}, busActive: false };
@@ -831,8 +837,8 @@ function computeTopologyRelations(sel, ports, gdmStats, ppeList, wedList, wifiBa
 			if (!w.attached) return;
 			rel.wed[String(w.id)] = true;
 			wifiBands.forEach(function(b) {
-				var wid = b.wedId !== undefined && b.wedId !== null ? b.wedId : b.band;
-				if (String(wid) === String(w.id)) rel.wifi[String(b.band)] = true;
+				var wid = resolveBandWedId(b);
+				if (wid !== null && String(wid) === String(w.id)) rel.wifi[String(b.band)] = true;
 			});
 		});
 	}
@@ -865,18 +871,20 @@ function computeTopologyRelations(sel, ports, gdmStats, ppeList, wedList, wifiBa
 	} else if (sel.kind === 'wed') {
 		rel.wed[sel.id] = true;
 		wifiBands.forEach(function(b) {
-			var wid = b.wedId !== undefined && b.wedId !== null ? b.wedId : b.band;
-			if (String(wid) === sel.id) rel.wifi[String(b.band)] = true;
+			var wid = resolveBandWedId(b);
+			if (wid !== null && String(wid) === sel.id) rel.wifi[String(b.band)] = true;
 		});
 		rel.busActive = true;
 		ppeList.forEach(function(e) { rel.ppe[String(e.id)] = true; });
 	} else if (sel.kind === 'wifi') {
 		rel.wifi[sel.id] = true;
 		var bandObj = wifiBands.filter(function(b) { return String(b.band) === sel.id; })[0];
-		var wid = bandObj && bandObj.wedId !== undefined && bandObj.wedId !== null ? String(bandObj.wedId) : sel.id;
-		wedList.forEach(function(w) { if (String(w.id) === wid) rel.wed[String(w.id)] = true; });
-		rel.busActive = true;
-		ppeList.forEach(function(e) { rel.ppe[String(e.id)] = true; });
+		var wid = bandObj ? resolveBandWedId(bandObj) : sel.id;
+		if (wid !== null) {
+			wedList.forEach(function(w) { if (String(w.id) === String(wid)) rel.wed[String(w.id)] = true; });
+			rel.busActive = true;
+			ppeList.forEach(function(e) { rel.ppe[String(e.id)] = true; });
+		}
 	}
 	return rel;
 }
@@ -965,6 +973,7 @@ function topologySvg(opts) {
 		if (rel) cls += eOpts.related ? ' is-hl' : ' is-dim';
 
 		var pAttrs = { d: d, className: cls };
+		if (eOpts.kind) pAttrs['data-edge'] = eOpts.kind;
 		if (strokeAttr) pAttrs.stroke = strokeAttr;
 		svgEdges.appendChild(svgEl('path', pAttrs));
 
@@ -984,7 +993,7 @@ function topologySvg(opts) {
 		var hasErr = (p.faults || 0) > 0;
 		var isRel = !!(rel && rel.port[String(p.netdev)] && rel.gdm[String(p.gdm)]);
 		var dotCol = hasErr ? 'var(--mtkw-err)' : isUp && hwOn ? 'var(--mtkw-ppe)' : 'var(--mtkw-border-strong)';
-		addEdge(bezier(a.x + a.w, a.y + a.h / 2, b.x, b.y + b.h / 2), { active: isUp && hwOn, err: hasErr, bypass: !isUp && !hasErr, pulse: isUp && hwOn, related: isRel });
+		addEdge(bezier(a.x + a.w, a.y + a.h / 2, b.x, b.y + b.h / 2), { kind: 'port-gdm', active: isUp && hwOn, err: hasErr, bypass: !isUp && !hasErr, pulse: isUp && hwOn, related: isRel });
 		addDot(a.x + a.w, a.y + a.h / 2, dotCol, rel && !isRel);
 		addDot(b.x, b.y + b.h / 2, dotCol, rel && !isRel);
 	});
@@ -997,7 +1006,7 @@ function topologySvg(opts) {
 		var hasErr = (g.errCount || 0) > 0;
 		var isRel = !!(rel && rel.gdm[String(g.gdm)] && rel.ppe[String(g.ppeId)]);
 		var dotCol = hasErr ? 'var(--mtkw-err)' : hwOn ? 'var(--mtkw-ppe)' : 'var(--mtkw-border-strong)';
-		addEdge(bezier(a.x + a.w, a.y + a.h / 2, b.x, b.y + b.h / 2), { active: hwOn, err: hasErr, bypass: !hwOn && !hasErr, pulse: hwOn, related: isRel });
+		addEdge(bezier(a.x + a.w, a.y + a.h / 2, b.x, b.y + b.h / 2), { kind: 'gdm-ppe', active: hwOn, err: hasErr, bypass: !hwOn && !hasErr, pulse: hwOn, related: isRel });
 		addDot(a.x + a.w, a.y + a.h / 2, dotCol, rel && !isRel);
 		addDot(b.x, b.y + b.h / 2, dotCol, rel && !isRel);
 	});
@@ -1034,8 +1043,8 @@ function topologySvg(opts) {
 	ppeList.forEach(function(e) {
 		var a = posPpe[String(e.id)], y = a.y + a.h / 2;
 		var isRel = !!(rel && rel.ppe[String(e.id)] && rel.busActive);
-		var dotCol = hwOn && e.bound > 0 ? 'var(--mtkw-ppe)' : 'var(--mtkw-border-strong)';
-		addEdge('M' + (a.x + a.w) + ',' + y + ' L' + cols.bus.x + ',' + y, { active: hwOn && e.bound > 0, bypass: !hwOn, pulse: hwOn && e.bound > 0, related: isRel });
+		var dotCol = hwOn && e.bound > 0 && !e.stale ? 'var(--mtkw-ppe)' : (e.stale ? 'var(--mtkw-warn)' : 'var(--mtkw-border-strong)');
+		addEdge('M' + (a.x + a.w) + ',' + y + ' L' + cols.bus.x + ',' + y, { kind: 'ppe-bus', active: hwOn && e.bound > 0, bypass: !hwOn, pulse: hwOn && e.bound > 0 && !e.stale, related: isRel });
 		addDot(a.x + a.w, y, dotCol, rel && !isRel);
 		addDot(cols.bus.x, y, dotCol, rel && !isRel);
 	});
@@ -1044,20 +1053,21 @@ function topologySvg(opts) {
 		var b = posWed[String(w.id)], y = b.y + b.h / 2;
 		var isRel = !!(rel && rel.wed[String(w.id)] && rel.busActive);
 		var dotCol = w.attached && hwOn ? 'var(--mtkw-wed)' : 'var(--mtkw-border-strong)';
-		addEdge('M' + (cols.bus.x + cols.bus.w) + ',' + y + ' L' + b.x + ',' + y, { wed: w.attached && hwOn, bypass: !w.attached || !hwOn, pulse: w.attached && hwOn, related: isRel });
+		addEdge('M' + (cols.bus.x + cols.bus.w) + ',' + y + ' L' + b.x + ',' + y, { kind: 'bus-wed', wed: w.attached && hwOn, bypass: !w.attached || !hwOn, pulse: w.attached && hwOn, related: isRel });
 		addDot(cols.bus.x + cols.bus.w, y, dotCol, rel && !isRel);
 		addDot(b.x, y, dotCol, rel && !isRel);
 	});
 
 	/* Edges 4: WED -> Wi-Fi */
 	wifiBands.forEach(function(b) {
-		var wid = b.wedId !== undefined && b.wedId !== null ? b.wedId : b.band;
+		var wid = resolveBandWedId(b);
+		if (wid === null) return;
 		var a = posWed[String(wid)], c = posWifi[String(b.band)];
 		if (!a || !c) return;
 		var wObj = a.obj;
 		var isRel = !!(rel && rel.wed[String(wid)] && rel.wifi[String(b.band)]);
 		var dotCol = wObj && wObj.attached ? 'var(--mtkw-wed)' : 'var(--mtkw-border-strong)';
-		addEdge(bezier(a.x + a.w, a.y + a.h / 2, c.x, c.y + c.h / 2), { wed: wObj && wObj.attached, bypass: !wObj || !wObj.attached, pulse: wObj && wObj.attached && hwOn && (b.stations || 0) > 0, related: isRel });
+		addEdge(bezier(a.x + a.w, a.y + a.h / 2, c.x, c.y + c.h / 2), { kind: 'wed-wifi', wed: wObj && wObj.attached, bypass: !wObj || !wObj.attached, pulse: wObj && wObj.attached && hwOn && (b.stations || 0) > 0, related: isRel });
 		addDot(a.x + a.w, a.y + a.h / 2, dotCol, rel && !isRel);
 		addDot(c.x, c.y + c.h / 2, dotCol, rel && !isRel);
 	});
@@ -1146,9 +1156,12 @@ function topologySvg(opts) {
 		var barW = box.w - 20;
 		var bndW = total > 0 ? Math.round((bound / total) * barW) : 0;
 		var unbW = total > 0 ? Math.round((unbound / total) * barW) : 0;
-		var acc = hwOn ? 'var(--mtkw-ppe)' : 'var(--mtkw-warn)';
+		var isStale = !!e.stale;
+		var acc = (isStale || !hwOn) ? 'var(--mtkw-warn)' : 'var(--mtkw-ppe)';
+		var iconTint = (isStale || !hwOn) ? 'var(--mtkw-warn-tint)' : 'var(--mtkw-ppe-tint)';
+		var barFillCol = isStale ? 'var(--mtkw-warn)' : (hwOn ? 'url(#' + gradPpeId + ')' : 'var(--mtkw-border-strong)');
 		var bndStr = (bound >= 10000 || total >= 10000)
-			? ('BND ' + ppeCompact(bound) + '/' + ppeCompact(total))
+			? ('BND ' + ppeCompact(bound) + '/' + ppeCompact(total) + (isStale && e.staleLabel ? (' · ' + e.staleLabel) : ''))
 			: (e.bndText || ('BND ' + bound + '/' + total));
 		var protoStr = (ipv4 >= 10000 || ipv6 >= 10000)
 			? ('v4:' + ppeCompact(ipv4) + ' v6:' + ppeCompact(ipv6))
@@ -1162,11 +1175,11 @@ function topologySvg(opts) {
 		}
 
 		nodeCard('ppe', e.id, e, box, e.ariaLabel || ('PPE' + e.id), acc, false, [
-			svgIconBadge('ppe', box.x + 20, box.y + 21, hwOn ? 'var(--mtkw-ppe-tint)' : 'var(--mtkw-warn-tint)', acc),
+			svgIconBadge('ppe', box.x + 20, box.y + 21, iconTint, acc),
 			svgEl('text', { x: box.x + 36, y: box.y + 21, className: 'mtkw-node-title' }, e.title || ('PPE' + e.id)),
 			svgEl('text', { x: box.x + box.w - 10, y: box.y + 21, 'text-anchor': 'end', className: 'mtkw-node-val', fill: acc }, e.pctText || (rate.toFixed(1) + '%')),
 			svgEl('rect', { x: box.x + 10, y: box.y + 36, width: barW, height: 6, rx: 3, fill: 'var(--mtkw-track)' }),
-			bndW > 0 ? svgEl('rect', { x: box.x + 10, y: box.y + 36, width: bndW, height: 6, rx: 3, fill: hwOn ? 'url(#' + gradPpeId + ')' : 'var(--mtkw-border-strong)' }) : null,
+			bndW > 0 ? svgEl('rect', { x: box.x + 10, y: box.y + 36, width: bndW, height: 6, rx: 3, fill: barFillCol }) : null,
 			unbW > 0 ? svgEl('rect', { x: box.x + 10 + bndW, y: box.y + 36, width: Math.min(unbW, barW - bndW), height: 6, rx: 2, fill: 'var(--mtkw-warn)' }) : null,
 			svgEl('text', bndAttrs, bndStr),
 			svgEl('text', protoAttrs, protoStr)
@@ -1291,7 +1304,7 @@ function topologySvg(opts) {
 		E('div', { 'class': 'mtkw-mtopo-tier' }, [
 			E('div', { 'class': 'mtkw-mtopo-lbl' }, labels.mColPpe || labels.colPpe || 'PPE'),
 			E('div', { 'class': 'mtkw-mtopo-grid' }, ppeList.map(function(e) {
-				return mNode('ppe', e.id, e, 'ppe', e.mobileTitle || (e.title || 'PPE' + e.id), e.mobileSub || e.bndText || '', hwOn ? 'ppe' : 'warn', false);
+				return mNode('ppe', e.id, e, 'ppe', e.mobileTitle || (e.title || 'PPE' + e.id), e.mobileSub || e.bndText || '', (e.stale || !hwOn) ? 'warn' : 'ppe', false);
 			}))
 		]),
 		E('div', { 'class': 'mtkw-mtopo-bus' }, labels.mBusLabel || labels.busLabel || 'MTK FE ↔ WED'),
@@ -1321,25 +1334,56 @@ function toTempDegC(v) {
 	return v >= 1000 ? v / 1000 : v;
 }
 
+function fmtChartOffset(sec, lbls) {
+	lbls = lbls || {};
+	sec = Math.max(0, Math.round(Number(sec) || 0));
+	if (sec === 0) return lbls.nowLabel || '0s';
+	if (sec < 60) return '-' + sec + 's';
+	if (sec < 3600) {
+		var m = Math.floor(sec / 60), remS = sec % 60;
+		return '-' + m + 'm' + (remS ? ' ' + remS + 's' : '');
+	}
+	var h = Math.floor(sec / 3600), remM = Math.floor((sec % 3600) / 60);
+	return '-' + h + 'h' + (remM ? ' ' + remM + 'm' : '');
+}
+
 function cpuChartSvg(opts) {
 	opts = opts || {};
 	var labels = opts.labels || {};
-	var freqHist = [], tempHist = [];
+	var freqHist = [], tempHist = [], tsHist = [];
+	var hasRealTs = false;
 
 	/* Strict 1:1 index alignment: missing temperatures stay explicitly null */
 	if (Array.isArray(opts.history)) {
+		hasRealTs = opts.history.length > 0;
 		for (var i = 0; i < opts.history.length; i++) {
 			var pt = opts.history[i] || {};
 			freqHist.push(Number(pt.freq) || 0);
 			tempHist.push(toTempDegC(pt.temp));
+			var pts = Number(pt.ts);
+			if (hasRealTs && typeof pt.ts === 'number' && isFinite(pts) && pts > 0 && (i === 0 || pts >= tsHist[i - 1])) {
+				tsHist.push(pts);
+			} else {
+				hasRealTs = false;
+				tsHist.push(0);
+			}
 		}
 	} else if (opts.history && typeof opts.history === 'object') {
 		var rawF = Array.isArray(opts.history.freqs) ? opts.history.freqs : [];
 		var rawT = Array.isArray(opts.history.temps) ? opts.history.temps : [];
+		var rawTs = Array.isArray(opts.history.timestamps) ? opts.history.timestamps : [];
 		var len = Math.max(rawF.length, rawT.length);
+		hasRealTs = len > 0 && rawTs.length >= len;
 		for (var j = 0; j < len; j++) {
 			freqHist.push(Number(rawF[j]) || 0);
 			tempHist.push(toTempDegC(rawT[j]));
+			var rts = Number(rawTs[j]);
+			if (hasRealTs && typeof rawTs[j] === 'number' && isFinite(rts) && rts > 0 && (j === 0 || rts >= tsHist[j - 1])) {
+				tsHist.push(rts);
+			} else {
+				hasRealTs = false;
+				tsHist.push(0);
+			}
 		}
 	}
 
@@ -1360,6 +1404,7 @@ function cpuChartSvg(opts) {
 	) || 1800000;
 	var curMax = (isFinite(rawMax) && rawMax > 0) ? rawMax : hwMax;
 	var tickSec = Number(labels.tickSec) || 5;
+	var gapMs = (Number(labels.gapSec) || Math.max(15, tickSec * 3)) * 1000;
 	var freqInKhz = hwMax >= 10000;
 
 	function fmtFreqAxis(v) { return String(Math.round(freqInKhz ? (v / 1000) : v)); }
@@ -1371,15 +1416,41 @@ function cpuChartSvg(opts) {
 	var cw = 560, ch = 206, padL = 44, padR = 40, padT = 16, padB = 24;
 	var plotW = cw - padL - padR, plotH = ch - padT - padB;
 
-	function xAt(idx, len) { return len <= 1 ? padL + plotW : padL + (idx / (len - 1)) * plotW; }
+	function xAt(idx, count) {
+		if (hasRealTs && count > 1 && tsHist[count - 1] > tsHist[0]) {
+			return padL + ((tsHist[idx] - tsHist[0]) / (tsHist[count - 1] - tsHist[0])) * plotW;
+		}
+		return count <= 1 ? padL + plotW : padL + (idx / (count - 1)) * plotW;
+	}
 	function yFreq(v) { return padT + plotH - Math.max(0, Math.min(1, (v - yBotFreq) / Math.max(1, yTopFreq - yBotFreq))) * plotH; }
 	function yTemp(degC) { return padT + plotH - Math.max(0, Math.min(1, (degC - 35) / 60)) * plotH; }
+	function isTimeGap(idx) { return hasRealTs && idx > 0 && (tsHist[idx] - tsHist[idx - 1]) > gapMs; }
 
-	var fPts = freqHist.map(function(f, idx) { return xAt(idx, N).toFixed(1) + ',' + yFreq(f).toFixed(1); });
-	var fLine = fPts.length ? 'M' + fPts.join(' L') : '';
-	var fArea = fPts.length ? ('M' + xAt(0, N).toFixed(1) + ',' + (padT + plotH) + ' L' + fPts.join(' L') + ' L' + xAt(N - 1, N).toFixed(1) + ',' + (padT + plotH) + ' Z') : '';
+	/* Break frequency path/area across >gapMs time gaps; draw dots for isolated samples */
+	var fLineSegments = [];
+	var fAreaSegments = [];
+	var fIsolatedDots = [];
+	var curFreqRun = [];
+	function flushFreqRun() {
+		if (curFreqRun.length >= 2) {
+			var ptsStr = curFreqRun.map(function(p) { return p.x.toFixed(1) + ',' + p.y.toFixed(1); }).join(' L');
+			var x0 = curFreqRun[0].x.toFixed(1);
+			var x1 = curFreqRun[curFreqRun.length - 1].x.toFixed(1);
+			fLineSegments.push('M' + ptsStr);
+			fAreaSegments.push('M' + x0 + ',' + (padT + plotH) + ' L' + ptsStr + ' L' + x1 + ',' + (padT + plotH) + ' Z');
+		} else if (curFreqRun.length === 1) {
+			fIsolatedDots.push(curFreqRun[0]);
+		}
+		curFreqRun = [];
+	}
+	for (var fi = 0; fi < N; fi++) {
+		if (isTimeGap(fi)) flushFreqRun();
+		curFreqRun.push({ idx: fi, x: xAt(fi, N), y: yFreq(freqHist[fi]), freq: freqHist[fi] });
+	}
+	flushFreqRun();
+	var lastFreqAlreadyDot = fIsolatedDots.some(function(d) { return d.idx === N - 1; });
 
-	/* Break temperature path across null gaps; draw crisp dots for isolated points */
+	/* Break temperature path across null gaps and >gapMs time gaps; draw crisp dots for isolated points */
 	var tSegments = [];
 	var tIsolatedDots = [];
 	var curRun = [];
@@ -1392,6 +1463,7 @@ function cpuChartSvg(opts) {
 		curRun = [];
 	}
 	for (var ti = 0; ti < N; ti++) {
+		if (isTimeGap(ti)) flushTempRun();
 		if (tempHist[ti] !== null) {
 			curRun.push({ idx: ti, x: xAt(ti, N), y: yTemp(tempHist[ti]), deg: tempHist[ti] });
 		} else {
@@ -1399,7 +1471,6 @@ function cpuChartSvg(opts) {
 		}
 	}
 	flushTempRun();
-	var tLine = tSegments.join(' ');
 
 	var lastTempValid = N > 0 && tempHist[N - 1] !== null;
 	var lastTempAlreadyDot = tIsolatedDots.some(function(d) { return d.idx === N - 1; });
@@ -1430,6 +1501,30 @@ function cpuChartSvg(opts) {
 	var hoverDotF = svgEl('circle', { cx: 0, cy: 0, r: 4.5, fill: 'var(--mtkw-primary)', stroke: 'var(--mtkw-surface)', 'stroke-width': '2', opacity: '0' });
 	var hoverDotT = svgEl('circle', { cx: 0, cy: 0, r: 3.8, fill: 'var(--mtkw-warn)', stroke: 'var(--mtkw-surface)', 'stroke-width': '1.8', opacity: '0' });
 
+	var fAreaEls = fAreaSegments.map(function(seg) {
+		return svgEl('path', { className: 'mtkw-freq-area', d: seg, fill: 'url(#' + areaId + ')' });
+	});
+	var fLineEls = fLineSegments.map(function(seg) {
+		return svgEl('path', {
+			className: 'mtkw-freq-line', d: seg, fill: 'none',
+			stroke: 'url(#' + strokeId + ')', 'stroke-width': '2.4',
+			'stroke-linejoin': 'round', 'stroke-linecap': 'round'
+		});
+	});
+	var fDotEls = fIsolatedDots.map(function(d) {
+		return svgEl('circle', {
+			className: 'mtkw-freq-dot', 'data-idx': String(d.idx),
+			cx: d.x.toFixed(1), cy: d.y.toFixed(1), r: d.idx === N - 1 ? 4 : 3.5,
+			fill: 'var(--mtkw-primary)', stroke: 'var(--mtkw-surface)', 'stroke-width': '1.8'
+		});
+	});
+	var tLineEls = tSegments.map(function(seg) {
+		return svgEl('path', {
+			className: 'mtkw-temp-line', d: seg, fill: 'none',
+			stroke: 'var(--mtkw-band-24)', 'stroke-width': '1.75',
+			'stroke-linejoin': 'round', opacity: '0.85'
+		});
+	});
 	var tDotEls = tIsolatedDots.map(function(d) {
 		return svgEl('circle', {
 			className: 'mtkw-temp-dot', 'data-idx': String(d.idx),
@@ -1438,30 +1533,35 @@ function cpuChartSvg(opts) {
 		});
 	});
 
+	var leftAxisLbl = hasRealTs
+		? (N <= 1 ? (labels.nowLabel || '0s') : fmtChartOffset((tsHist[N - 1] - tsHist[0]) / 1000, labels))
+		: ('-' + Math.round(Math.max(0, N - 1) * tickSec) + 's');
+
 	var svgChart = svgEl('svg', {
 		className: 'mtkw-chart-svg', viewBox: '0 0 ' + cw + ' ' + ch,
 		role: 'img', 'aria-label': labels.ariaLabel || ''
 	}, [
 		svgEl('defs', null, [
-			svgEl('linearGradient', { id: areaId, x1: '0', y1: '0', x2: '0', y2: '1' }, [
+			svgEl('linearGradient', { id: areaId, gradientUnits: 'userSpaceOnUse', x1: '0', y1: String(padT), x2: '0', y2: String(padT + plotH) }, [
 				svgEl('stop', { offset: '0%', 'stop-color': 'var(--mtkw-ppe-start)', 'stop-opacity': '0.32' }),
 				svgEl('stop', { offset: '100%', 'stop-color': 'var(--mtkw-ppe-start)', 'stop-opacity': '0.01' })
 			]),
-			svgEl('linearGradient', { id: strokeId, x1: '0', y1: '0', x2: '1', y2: '0' }, [
+			svgEl('linearGradient', { id: strokeId, gradientUnits: 'userSpaceOnUse', x1: String(padL), y1: '0', x2: String(cw - padR), y2: '0' }, [
 				svgEl('stop', { offset: '0%', 'stop-color': 'var(--mtkw-ppe-start)' }),
 				svgEl('stop', { offset: '100%', 'stop-color': 'var(--mtkw-primary)' })
 			])
 		]),
 		svgEl('g', null, gridKids),
-		fArea ? svgEl('path', { d: fArea, fill: 'url(#' + areaId + ')' }) : null,
+		fAreaEls.length ? svgEl('g', { className: 'mtkw-freq-areas' }, fAreaEls) : null,
 		/* Dashed max-freq cap line only — cap pill lives in caller legend to prevent overlap */
 		svgEl('line', { x1: padL, y1: yFreq(curMax), x2: cw - padR, y2: yFreq(curMax), stroke: 'var(--mtkw-warn)', 'stroke-width': '1.4', 'stroke-dasharray': '5 4', opacity: '0.85' }),
-		tLine ? svgEl('path', { className: 'mtkw-temp-line', d: tLine, fill: 'none', stroke: 'var(--mtkw-band-24)', 'stroke-width': '1.75', 'stroke-linejoin': 'round', opacity: '0.85' }) : null,
-		fLine ? svgEl('path', { d: fLine, fill: 'none', stroke: 'url(#' + strokeId + ')', 'stroke-width': '2.4', 'stroke-linejoin': 'round', 'stroke-linecap': 'round' }) : null,
-		N ? svgEl('circle', { cx: xAt(N - 1, N), cy: yFreq(freqHist[N - 1]), r: 4, fill: 'var(--mtkw-primary)', stroke: 'var(--mtkw-surface)', 'stroke-width': '1.8' }) : null,
+		tLineEls.length ? svgEl('g', { className: 'mtkw-temp-lines' }, tLineEls) : null,
+		fLineEls.length ? svgEl('g', { className: 'mtkw-freq-lines' }, fLineEls) : null,
+		(N && !lastFreqAlreadyDot) ? svgEl('circle', { cx: xAt(N - 1, N), cy: yFreq(freqHist[N - 1]), r: 4, fill: 'var(--mtkw-primary)', stroke: 'var(--mtkw-surface)', 'stroke-width': '1.8' }) : null,
+		svgEl('g', { className: 'mtkw-freq-dots' }, fDotEls),
 		(lastTempValid && !lastTempAlreadyDot) ? svgEl('circle', { className: 'mtkw-temp-dot', 'data-idx': String(N - 1), cx: xAt(N - 1, N), cy: yTemp(tempHist[N - 1]), r: 3.2, fill: 'var(--mtkw-band-24)', stroke: 'var(--mtkw-surface)', 'stroke-width': '1.5' }) : null,
 		svgEl('g', { className: 'mtkw-temp-dots' }, tDotEls),
-		svgEl('text', { x: padL, y: ch - 6, fill: 'var(--mtkw-text-muted)', 'font-family': 'var(--mtkw-font-mono)', 'font-size': '9.5' }, '-' + Math.round(Math.max(0, N - 1) * tickSec) + 's'),
+		svgEl('text', { className: 'mtkw-chart-x-start', x: padL, y: ch - 6, fill: 'var(--mtkw-text-muted)', 'font-family': 'var(--mtkw-font-mono)', 'font-size': '9.5' }, leftAxisLbl),
 		svgEl('text', { x: cw - padR, y: ch - 6, 'text-anchor': 'end', fill: 'var(--mtkw-text-muted)', 'font-family': 'var(--mtkw-font-mono)', 'font-size': '9.5' }, labels.axisHint || ''),
 		hoverLine, hoverDotF, hoverDotT
 	]);
@@ -1472,7 +1572,15 @@ function cpuChartSvg(opts) {
 		var rect = svgChart.getBoundingClientRect();
 		if (!rect.width) return;
 		var relX = ((ev.clientX - rect.left) / rect.width) * cw;
-		var idx = Math.round(Math.max(0, Math.min(1, (relX - padL) / plotW)) * (N - 1));
+		var idx = 0;
+		var bestDist = Infinity;
+		for (var hi = 0; hi < N; hi++) {
+			var dist = Math.abs(xAt(hi, N) - relX);
+			if (dist <= bestDist) {
+				bestDist = dist;
+				idx = hi;
+			}
+		}
 		var px = xAt(idx, N);
 		hoverLine.setAttribute('x1', px);
 		hoverLine.setAttribute('x2', px);
@@ -1490,12 +1598,12 @@ function cpuChartSvg(opts) {
 			hoverDotT.setAttribute('opacity', '0');
 		}
 
-		var secAgo = (N - 1 - idx) * tickSec;
+		var secAgo = hasRealTs ? Math.max(0, Math.round((tsHist[N - 1] - tsHist[idx]) / 1000)) : (N - 1 - idx) * tickSec;
 		if (typeof labels.fmtHover === 'function') {
 			tip.textContent = labels.fmtHover(freqHist[idx], tDeg, idx, secAgo);
 		} else {
 			var tStr = tDeg !== null ? (tDeg.toFixed(1) + ' ' + (labels.unitTemp || '°C')) : '—';
-			tip.textContent = (secAgo === 0 ? (labels.nowLabel || '0s') : ('-' + secAgo + 's')) + ' · ' + fmtFreqTip(freqHist[idx]) + ' · ' + tStr;
+			tip.textContent = fmtChartOffset(secAgo, labels) + ' · ' + fmtFreqTip(freqHist[idx]) + ' · ' + tStr;
 		}
 		tip.style.left = Math.max(20, Math.min(80, (px / cw) * 100)) + '%';
 		tip.classList.add('is-show');

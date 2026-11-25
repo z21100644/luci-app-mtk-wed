@@ -97,6 +97,8 @@ function rpcError(message) {
 	message = String(message || '');
 	if (message.indexOf(WED_RECOVERY_PREFIX) === 0)
 		return _('cannot save or restore the WED settings; recovery files: %s').format(message.slice(WED_RECOVERY_PREFIX.length));
+	if (message === 'cannot restore previous CPU settings')
+		return _('cannot restore previous CPU settings');
 	return _(message);
 }
 
@@ -139,6 +141,17 @@ function fmtTimeHMS(ts) {
 	var d = new Date(ts);
 	function pad(n) { return n < 10 ? '0' + n : String(n); }
 	return pad(d.getHours()) + ':' + pad(d.getMinutes()) + ':' + pad(d.getSeconds());
+}
+
+function fmtAgeShort(sec) {
+	sec = Math.max(0, Math.floor(Number(sec) || 0));
+	if (sec < 60) return sec + 's';
+	if (sec < 3600) {
+		var m = Math.floor(sec / 60), s = sec % 60;
+		return s ? (m + 'm ' + s + 's') : (m + 'm');
+	}
+	var h = Math.floor(sec / 3600), rm = Math.floor((sec % 3600) / 60);
+	return rm ? (h + 'h ' + rm + 'm') : (h + 'h');
 }
 
 /* ── Domain Formatters & Helpers ─────────────────────────────────────────── */
@@ -522,30 +535,94 @@ function flowFinCount(d) {
 	return Math.max(0, (Number(d.total) || 0) - (Number(d.bound) || 0) - (Number(d.unbound) || 0));
 }
 
-function wedIdForBand(bandIdx, weds, bands) {
-	if (!Array.isArray(weds) || !weds.length) return bandIdx;
-	for (var i = 0; i < weds.length; i++) {
-		if (Number(weds[i].id) === Number(bandIdx)) return weds[i].id;
+function resolveWedBandMap(weds, bands) {
+	var allWeds = Array.isArray(weds) ? weds : [];
+	var actBands = Array.isArray(bands)
+		? bands.filter(function(b) { return b && b.band !== undefined && b.band !== null; })
+		: [];
+	var wedToBands = {};
+	var bandToWed = {};
+
+	allWeds.forEach(function(w) {
+		if (w && w.id !== undefined && w.id !== null) wedToBands[w.id] = [];
+	});
+	actBands.forEach(function(b) {
+		bandToWed[b.band] = null;
+	});
+
+	var attachedWeds = allWeds
+		.filter(function(w) { return w && w.attached === true && w.id !== undefined && w.id !== null; })
+		.slice()
+		.sort(function(a, b) { return Number(a.id) - Number(b.id); });
+
+	if (!attachedWeds.length || !actBands.length) {
+		return { bandToWed: bandToWed, wedToBands: wedToBands, estimated: false };
 	}
-	if (Array.isArray(bands)) {
-		for (var j = 0; j < bands.length; j++) {
-			if (Number(bands[j].band) === Number(bandIdx) && weds[j]) return weds[j].id;
+
+	var sortedBands = actBands.slice().sort(function(a, b) { return Number(a.band) - Number(b.band); });
+
+	if (attachedWeds.length === 1) {
+		var w0 = attachedWeds[0].id;
+		sortedBands.forEach(function(b) {
+			bandToWed[b.band] = w0;
+			wedToBands[w0].push(b);
+		});
+		return { bandToWed: bandToWed, wedToBands: wedToBands, estimated: false };
+	}
+
+	var claimedBand = {};
+	var claimedWed = {};
+
+	/* Pass 1: exact band index === WED id pairing among attached WEDs */
+	sortedBands.forEach(function(b) {
+		var bKey = String(b.band);
+		if (claimedBand[bKey]) return;
+		for (var i = 0; i < attachedWeds.length; i++) {
+			var w = attachedWeds[i];
+			var wKey = String(w.id);
+			if (!claimedWed[wKey] && Number(w.id) === Number(b.band)) {
+				claimedBand[bKey] = true;
+				claimedWed[wKey] = true;
+				bandToWed[b.band] = w.id;
+				wedToBands[w.id].push(b);
+				break;
+			}
 		}
-	}
-	return weds[0].id;
+	});
+
+	/* Pass 2: pair remaining unclaimed bands with remaining unclaimed attached WEDs in ascending order */
+	var freeWeds = attachedWeds.filter(function(w) { return !claimedWed[String(w.id)]; });
+	var freeIdx = 0;
+	sortedBands.forEach(function(b) {
+		var bKey = String(b.band);
+		if (claimedBand[bKey]) return;
+		var targetWed = freeIdx < freeWeds.length ? freeWeds[freeIdx++] : attachedWeds[0];
+		claimedBand[bKey] = true;
+		bandToWed[b.band] = targetWed.id;
+		wedToBands[targetWed.id].push(b);
+	});
+
+	Object.keys(wedToBands).forEach(function(wid) {
+		wedToBands[wid].sort(function(a, b) { return Number(a.band) - Number(b.band); });
+	});
+
+	return { bandToWed: bandToWed, wedToBands: wedToBands, estimated: true };
+}
+
+function wedIdForBand(bandIdx, weds, bands) {
+	var map = resolveWedBandMap(weds, bands);
+	var wid = map.bandToWed[bandIdx];
+	return (wid === undefined || wid === null) ? null : wid;
+}
+
+function bandsForWed(wedId, weds, bands) {
+	var map = resolveWedBandMap(weds, bands);
+	return map.wedToBands[wedId] ? map.wedToBands[wedId].slice() : [];
 }
 
 function bandForWed(wedId, weds, bands) {
-	if (!Array.isArray(bands) || !bands.length) return null;
-	for (var i = 0; i < bands.length; i++) {
-		if (Number(bands[i].band) === Number(wedId)) return bands[i];
-	}
-	if (Array.isArray(weds)) {
-		for (var j = 0; j < weds.length; j++) {
-			if (Number(weds[j].id) === Number(wedId) && bands[j]) return bands[j];
-		}
-	}
-	return null;
+	var list = bandsForWed(wedId, weds, bands);
+	return list.length ? list[0] : null;
 }
 
 function summarizeCoreSamples(samples) {
@@ -670,7 +747,9 @@ return view.extend({
 			flowPage: 0,
 			flowData: { entries: [] },
 			flowBaseAge: 0,
-			flowFetchedAt: null
+			flowFetchedAt: null,
+			ppeLastGoodAt: null,
+			ppeLastGoodBaseAge: 0
 		};
 
 		/* Page shell */
@@ -784,6 +863,11 @@ return view.extend({
 			var n = socPpeNum(app.lastStatus.soc);
 			if (n) return n;
 			return Array.isArray(app.lastStatus.ppe) && app.lastStatus.ppe.length ? app.lastStatus.ppe.length : 0;
+		}
+
+		function ppeStaleAgeSec() {
+			if (app.ppeLastGoodAt === null) return 0;
+			return (Number(app.ppeLastGoodBaseAge) || 0) + Math.max(0, Math.floor((Date.now() - app.ppeLastGoodAt) / 1000));
 		}
 
 		/* ── Delta Engines ────────────────────────────────────────────────── */
@@ -1485,6 +1569,7 @@ return view.extend({
 				var eng = ppes.filter(function(x) { return Number(x.id) === Number(id); })[0];
 				if (!eng) { drawer.close(); return; }
 				var foPpe = app.statusKnown ? flowState(st) : { hwActive: null, cfgSw: null, cfgHw: null, liveSw: null, liveHw: null, mismatch: false, unknown: true, kind: '', text: _('Unknown') };
+				var ppeIsStale = !!st.ppeFailed;
 				var engBound = Number(eng.bound) || 0;
 				var engTotal = Number(eng.total) || 0;
 				var engUnb = Number(eng.unbound) || 0;
@@ -1492,11 +1577,14 @@ return view.extend({
 				var pct = engTotal > 0 ? ((engBound / engTotal) * 100).toFixed(1) + '%' : '0.0%';
 				title = 'PPE' + eng.id + ' · ' + _('PPE Engines');
 				iconName = 'ppe';
-				if (foPpe.mismatch || foPpe.hwActive === false) iconTone = 'warn';
+				if (ppeIsStale || foPpe.mismatch || foPpe.hwActive === false) iconTone = 'warn';
 				else if (foPpe.hwActive === null) iconTone = 'muted';
 				pills = [
 					aui.badge(foPpe.text, foPpe.kind === 'ok' ? 'ppe' : (foPpe.kind === 'warn' || foPpe.kind === 'info') ? 'warn' : '')
 				];
+				if (ppeIsStale) {
+					pills.push(aui.badge(_('Stale'), 'warn'));
+				}
 
 				breadcrumbs = [
 					{ label: 'GDM' + (Number(eng.id) + 1), focusKey: 'gdm-' + eng.id, onClick: function() { openInspector('gdm', Number(eng.id)); } },
@@ -1512,8 +1600,21 @@ return view.extend({
 					{ label: 'UNB / FIN', value: engUnb + ' / ' + engFin }
 				];
 
-				body.push(kvBox('PPE' + eng.id + ' · ' + _('Offload Statistics'), [
-					{ k: _('Status'), v: foPpe.text, err: foPpe.mismatch },
+				var ppeRows = [
+					{ k: _('Status'), v: foPpe.text, err: foPpe.mismatch }
+				];
+				if (ppeIsStale) {
+					ppeRows.push({
+						k: _('Last updated'),
+						v: app.ppeLastGoodAt
+							? (fmtTimeHMS(app.ppeLastGoodAt) + ' (' + _('%s ago').format(fmtAgeShort(ppeStaleAgeSec())) + ')')
+							: _('Unavailable'),
+						err: true
+					});
+				} else if (app.ppeLastGoodAt) {
+					ppeRows.push({ k: _('Last updated'), v: fmtTimeHMS(app.ppeLastGoodAt) });
+				}
+				ppeRows.push(
 					{ k: _('Saved config'), v: flowLabelPair(foPpe.cfgSw, foPpe.cfgHw) },
 					{ k: _('Live fw4 rule'), v: foPpe.liveHw !== null ? flowLabelPair(foPpe.liveSw, foPpe.liveHw) : _('Unavailable') },
 					{ k: _('Bound'), v: fmtCount(engBound) },
@@ -1521,7 +1622,16 @@ return view.extend({
 					{ k: 'FIN', v: fmtCount(engFin) },
 					{ k: 'IPv4 / DS-LITE', v: fmtCount(Number(eng.ipv4) || 0) },
 					{ k: 'IPv6 / 6RD', v: fmtCount(Number(eng.ipv6) || 0) }
-				]));
+				);
+
+				if (ppeIsStale) {
+					var ppeErrMsg = (app.flowData && app.flowData.error) ? String(app.flowData.error) : _('PPE table unavailable');
+					body.push(E('div', { 'class': 'mtkw-mlo-popover is-flush', 'role': 'alert' }, [
+						E('strong', { 'class': 'mtkw-t-warn' }, _('PPE read failed')),
+						E('div', { 'class': 'mtkw-mt-3' }, ppeErrMsg)
+					]));
+				}
+				body.push(kvBox('PPE' + eng.id + ' · ' + _('Offload Statistics'), ppeRows));
 
 				var eJumpBtn = E('button', { 'type': 'button', 'class': 'mtkw-btn mtkw-btn-primary', 'data-focus-key': 'filter-ppe' }, [
 					_('Filter %s flows').format('PPE' + eng.id), aui.icon('arrow-right', 14)
@@ -1536,21 +1646,36 @@ return view.extend({
 				iconName = 'wed';
 				iconTone = (w.attached && w.rx === true) ? 'wed' : 'warn';
 
-				var bObj = bandForWed(w.id, weds, bands);
-				var bInfo = bObj ? (aui.BANDS[bObj.band] || { name: 'B' + bObj.band, full: _('Band') + ' ' + bObj.band }) : null;
+				var wedMap = resolveWedBandMap(weds, bands);
+				var wBands = wedMap.wedToBands[w.id] || [];
+				var isEst = !!(wedMap.estimated && wBands.length);
+				if (isEst) {
+					pills.push(aui.badge(_('Estimated'), ''));
+				}
 				breadcrumbs = [
 					{ label: 'PPE0', focusKey: 'ppe-0', onClick: function() { openInspector('ppe', 0); } },
 					{ label: 'WED' + w.id + (w.version != null ? ' v' + w.version : ''), current: true }
 				];
-				if (bObj && bInfo) {
-					breadcrumbs.push({ label: bInfo.full, focusKey: 'wifi-' + bObj.band, onClick: function() { openInspector('wifi', bObj.band); } });
-				}
+				wBands.forEach(function(bObj) {
+					var bInfo = aui.BANDS[bObj.band] || { name: 'B' + bObj.band, full: _('Band') + ' ' + bObj.band };
+					breadcrumbs.push({
+						label: bInfo.full + (wedMap.estimated ? ' (~)' : ''),
+						focusKey: 'wifi-' + bObj.band,
+						onClick: function() { openInspector('wifi', bObj.band); }
+					});
+				});
 
 				var modeShort = !w.attached ? _('Not attached') : w.rx === true ? _('TX + RX') : w.rx === false ? _('TX only') : _('TX, RX unknown');
+				var bandKpiVal = !wBands.length
+					? '—'
+					: wBands.map(function(bObj) {
+						var bi = aui.BANDS[bObj.band];
+						return bi ? bi.name : ('B' + bObj.band);
+					}).join(' / ') + (wedMap.estimated ? ' (~)' : '');
 				kpis = [
 					{ label: _('Version'), value: w.version != null ? 'WED v' + w.version : '—' },
 					{ label: _('Mode'), value: modeShort },
-					{ label: _('Band'), value: bInfo ? bInfo.name : '—' }
+					{ label: _('Band'), value: bandKpiVal }
 				];
 
 				body.push(
@@ -1569,29 +1694,50 @@ return view.extend({
 										: _('TX offload active; RX buffer manager register could not be read.'))
 					])
 				);
+				if (isEst) {
+					body.push(E('div', { 'class': 'mtkw-drawer-box' }, [
+						E('div', { 'class': 'mtkw-drawer-box-head' }, [
+							E('span', {}, _('Band')),
+							aui.badge(_('Estimated'), '')
+						]),
+						E('div', { 'class': 'mtkw-drawer-note' }, _('Band-to-WED pairing is estimated on multi-WED hardware.'))
+					]));
+				}
 
-				if (bObj && bInfo) {
-					var wBandBtn = E('button', { 'type': 'button', 'class': 'mtkw-btn mtkw-btn-primary', 'data-focus-key': 'inspect-wifi' }, [
-						_('Inspect %s band').format(bInfo.full), aui.icon('arrow-right', 14)
-					]);
-					wBandBtn.addEventListener('click', function() { openInspector('wifi', bObj.band); });
-					footer = [ wBandBtn ];
+				if (wBands.length) {
+					footer = wBands.map(function(bObj, idx) {
+						var bInfo = aui.BANDS[bObj.band] || { name: 'B' + bObj.band, full: _('Band') + ' ' + bObj.band };
+						var wBandBtn = E('button', {
+							'type': 'button',
+							'class': idx === 0 ? 'mtkw-btn mtkw-btn-primary' : 'mtkw-btn',
+							'data-focus-key': 'inspect-wifi-' + bObj.band
+						}, [
+							_('Inspect %s band').format(bInfo.full), aui.icon('arrow-right', 14)
+						]);
+						wBandBtn.addEventListener('click', function() { openInspector('wifi', bObj.band); });
+						return wBandBtn;
+					});
 				}
 			} else if (kind === 'wifi') {
 				var band = bands.filter(function(b) { return Number(b.band) === Number(id); })[0];
 				if (!band) { drawer.close(); return; }
 				var meta = aui.BANDS[band.band] || { full: _('Band') + ' ' + band.band, tone: 'ppe', varName: '--mtkw-ppe', tintVar: '--mtkw-ppe-tint' };
 				var q = wifiBandQuality(band);
-				var wid = wedIdForBand(band.band, weds, bands);
+				var wedMapWifi = resolveWedBandMap(weds, bands);
+				var wid = wedMapWifi.bandToWed[band.band];
 				title = meta.full + ' · ' + _('Wi-Fi Band Details');
 				iconName = 'wifi';
 				iconTone = meta.tone || 'ppe';
 
-				if (weds.length) {
+				if (wid !== null && wid !== undefined) {
+					var wedCrumbLbl = 'WED' + wid + (wedMapWifi.estimated ? ' (' + _('Estimated') + ')' : '');
 					breadcrumbs = [
-						{ label: 'WED' + wid, focusKey: 'wed-' + wid, onClick: function() { openInspector('wed', wid); } },
+						{ label: wedCrumbLbl, focusKey: 'wed-' + wid, onClick: function() { openInspector('wed', wid); } },
 						{ label: meta.full, current: true }
 					];
+					if (wedMapWifi.estimated) {
+						pills.push(aui.badge('WED' + wid + ' · ' + _('Estimated'), ''));
+					}
 				}
 
 				var avgSig = bandAvgSig(band);
@@ -1736,6 +1882,13 @@ return view.extend({
 						tone: 'warn',
 						text: foHead.text,
 						onClick: function() { navigateTo('offload', app.allInOne ? 'mtkw-sec-datapath' : 'mtkw-sec-offload-ctrl', app.allInOne ? 'datapath' : 'offload-ctrl'); }
+					});
+				}
+				if (st.ppeFailed && !st.ppeAbsent) {
+					anomalies.push({
+						tone: 'warn',
+						text: _('PPE read failed'),
+						onClick: function() { navigateTo('flows', 'mtkw-sec-flows', 'flows'); }
 					});
 				}
 			}
@@ -2242,8 +2395,9 @@ return view.extend({
 					: hwActive === false ? _('Software bypass')
 						: foSt.text;
 			var ppePillTone = foSt.kind === 'ok' ? 'ppe' : (foSt.kind === 'warn' || foSt.kind === 'info') ? 'warn' : '';
-			var ppeArcTone = (foSt.mismatch || hwActive === false) ? 'warn' : 'ppe';
 			var ppeAbsent = !!st.ppeAbsent || (ppeKnown && !ppes.length && !st.ppeFailed);
+			var ppeStale = !ppeAbsent && !!st.ppeFailed && ppeKnown && ppes.length > 0;
+			var ppeArcTone = (ppeStale || foSt.mismatch || hwActive === false) ? 'warn' : 'ppe';
 
 			var ppeFooterKids = ppes.length ? ppes.map(function(e) {
 				var eBound = Number(e.bound) || 0;
@@ -2265,17 +2419,32 @@ return view.extend({
 				aui.pill(ppeAbsent ? _('PPE debugfs not found') : (st.ppeFailed ? _('Unknown') : _('Loading…')), '')
 			];
 
+			var ppeTopPill = ppeStale
+				? (foSt.mismatch
+					? E('div', { 'class': 'mtkw-inline mtkw-inline--tight' }, [
+						aui.pill(foSt.text, 'warn'),
+						aui.pill(_('Stale'), 'warn')
+					])
+					: aui.pill(_('Stale'), 'warn'))
+				: aui.pill(foSt.text, ppePillTone);
+
+			var ppeGaugeSub = ppeAbsent
+				? _('PPE debugfs not found')
+				: ppeStale
+					? (app.ppeLastGoodAt
+						? _('%d PPE · Stale (last %s)').format(ppes.length, fmtTimeHMS(app.ppeLastGoodAt))
+						: _('%d PPE · %s').format(ppes.length, _('PPE read failed')))
+					: ppeKnown
+						? _('%d PPE · %s').format(ppes.length, ppeModeTxt)
+						: (st.ppeFailed ? _('Unknown') : _('Loading…'));
+
 			var c1 = E('div', { 'class': 'mtkw-gauge-card' }, [
 				E('div', { 'class': 'mtkw-gauge-top' }, [
 					E('div', {}, [
 						E('div', { 'class': 'mtkw-gauge-title' }, _('PPE Bind Rate')),
-						E('div', { 'class': 'mtkw-gauge-sub' }, ppeAbsent
-							? _('PPE debugfs not found')
-							: ppeKnown
-								? _('%d PPE · %s').format(ppes.length, ppeModeTxt)
-								: (st.ppeFailed ? _('Unknown') : _('Loading…')))
+						E('div', { 'class': 'mtkw-gauge-sub' }, ppeGaugeSub)
 					]),
-					aui.pill(foSt.text, ppePillTone)
+					ppeTopPill
 				]),
 				E('div', { 'class': 'mtkw-gauge-svg-wrap' }, [
 					aui.arcGauge({
@@ -2285,8 +2454,10 @@ return view.extend({
 						valueText: ppeAbsent ? '—' : ppeKnown ? bindPct.toFixed(1) + '%' : (st.ppeFailed ? '—' : '…'),
 						subText: ppeAbsent
 							? _('PPE debugfs not found')
-							: ppeKnown ? _('%d / %d bound').format(bnd, tot) : (st.ppeFailed ? _('Unknown') : _('Loading…')),
-						ariaLabel: _('PPE Bind Rate') + ' ' + ((!ppeAbsent && ppeKnown) ? bindPct.toFixed(1) + '%' : '')
+							: ppeStale
+								? _('%d / %d bound (stale)').format(bnd, tot)
+								: ppeKnown ? _('%d / %d bound').format(bnd, tot) : (st.ppeFailed ? _('Unknown') : _('Loading…')),
+						ariaLabel: _('PPE Bind Rate') + ' ' + ((!ppeAbsent && ppeKnown) ? (bindPct.toFixed(1) + '%' + (ppeStale ? ' (' + _('Stale') + ')' : '')) : '')
 					})
 				]),
 				E('div', { 'class': 'mtkw-gauge-footer' }, ppeFooterKids)
@@ -2793,20 +2964,24 @@ return view.extend({
 				};
 			});
 
+			var ppeIsStale = !!st.ppeFailed;
 			var topoPpes = ppeOrder.map(function(e) {
 				var eBound = Number(e.bound) || 0;
 				var eTotal = Number(e.total) || 0;
 				var rate = eTotal > 0 ? (eBound / eTotal) * 100 : 0;
+				var bndBase = 'BND ' + eBound + '/' + eTotal;
 				return Object.assign({}, e, {
+					stale: ppeIsStale,
+					staleLabel: _('Stale'),
 					bound: eBound,
 					total: eTotal,
 					title: 'PPE' + e.id,
 					pctText: rate.toFixed(1) + '%',
-					bndText: 'BND ' + eBound + '/' + eTotal,
+					bndText: ppeIsStale ? (bndBase + ' · ' + _('Stale')) : bndBase,
 					protoText: 'v4:' + (Number(e.ipv4) || 0) + ' v6:' + (Number(e.ipv6) || 0),
 					mobileTitle: 'PPE' + e.id + ' · ' + rate.toFixed(0) + '%',
-					mobileSub: 'BND ' + eBound + '/' + eTotal,
-					ariaLabel: 'PPE' + e.id + ' ' + _('Bind rate') + ' ' + rate.toFixed(0) + '%'
+					mobileSub: ppeIsStale ? (bndBase + ' · ' + _('Stale')) : bndBase,
+					ariaLabel: 'PPE' + e.id + ' ' + _('Bind rate') + ' ' + rate.toFixed(0) + '%' + (ppeIsStale ? ' (' + _('Stale') + ')' : '')
 				});
 			});
 
@@ -2823,13 +2998,15 @@ return view.extend({
 				});
 			});
 
+			var wedMapTopo = resolveWedBandMap(weds, bands);
 			var topoBands = bands.map(function(b) {
 				var info = aui.BANDS[b.band] || { full: _('Band') + ' ' + b.band };
 				var q = wifiBandQuality(b);
 				var avgSig = bandAvgSig(b);
 				var effTxt = hasValidEff(b) ? (b.airtime_efficiency + '%') : '—';
+				var mappedWed = wedMapTopo.bandToWed[b.band];
 				return Object.assign({}, b, {
-					wedId: wedIdForBand(b.band, weds, bands),
+					wedId: (mappedWed === undefined || mappedWed === null) ? null : mappedWed,
 					label: info.full,
 					linksText: _('%d links').format(b.stations || 0),
 					airtimeText: _('Airtime') + ' ' + effTxt,
@@ -3394,14 +3571,18 @@ return view.extend({
 					]));
 				}
 
+				var wedMapCards = resolveWedBandMap(weds, bands);
 				body.push(E('div', { 'class': 'mtkw-wifi-grid' }, bands.map(function(band) {
 					var meta = aui.BANDS[band.band] || { full: _('Band') + ' ' + band.band, tone: 'primary', varName: '--mtkw-primary' };
 					var col = 'var(' + meta.varName + ')';
 					var q = wifiBandQuality(band);
-					var wid = wedIdForBand(band.band, weds, bands);
-					var wedInst = weds.filter(function(w) { return Number(w.id) === Number(wid); })[0];
+					var wid = wedMapCards.bandToWed[band.band];
+					var wedInst = (wid !== null && wid !== undefined)
+						? weds.filter(function(w) { return Number(w.id) === Number(wid); })[0]
+						: null;
+					var wedPrefix = wedInst ? ((wedMapCards.estimated ? '~' : '') + 'WED' + wedInst.id) : '';
 					var pathLbl = wedInst && wedInst.attached
-						? ('WED' + wedInst.id + ' ' + (wedInst.rx === true ? _('TX + RX') : wedInst.rx === false ? _('TX only') : _('TX, RX unknown')))
+						? (wedPrefix + ' ' + (wedInst.rx === true ? _('TX + RX') : wedInst.rx === false ? _('TX only') : _('TX, RX unknown')))
 						: 'DMA';
 					var pathTone = wedInst && wedInst.attached ? (wedInst.rx === true ? 'wed' : 'warn') : '';
 					var expanded = !!app.expandedWifiBands[band.band];
@@ -3495,10 +3676,29 @@ return view.extend({
 
 		function currentFlowAgeText() {
 			var d = app.flowData || {};
-			if (d.available === false) return _('PPE table unavailable');
-			if (app.flowFetchedAt === null) return d.error ? _('PPE table unavailable') : _('Loading…');
+			var st = app.lastStatus || {};
+			if (st.ppeFailed || d.available === false || d.error) {
+				if (app.ppeLastGoodAt !== null) {
+					return _('Stale · %s ago').format(fmtAgeShort(ppeStaleAgeSec()));
+				}
+				return _('PPE table unavailable');
+			}
+			if (app.flowFetchedAt === null) return _('Loading…');
 			var sec = app.flowBaseAge + Math.max(0, Math.floor((Date.now() - app.flowFetchedAt) / 1000));
 			return (app.flowFrozen ? _('Frozen') + ' · ' : '') + _('Snapshot %ds ago').format(sec);
+		}
+
+		function isFlowAgeWarn() {
+			var d = app.flowData || {};
+			var st = app.lastStatus || {};
+			return !!(app.flowFrozen || st.ppeFailed || d.available === false || d.error);
+		}
+
+		function syncFlowAgeBadge(el) {
+			if (!el) return;
+			el.textContent = currentFlowAgeText();
+			if (isFlowAgeWarn()) el.setAttribute('data-tone', 'warn');
+			else el.removeAttribute('data-tone');
 		}
 
 		function flowMatchedTotal() {
@@ -3858,8 +4058,7 @@ return view.extend({
 			}
 			var countEl = byId('mtkw-flow-count');
 			if (countEl) countEl.textContent = flowSummaryText();
-			var ageEl = byId('mtkw-flow-age');
-			if (ageEl) ageEl.textContent = currentFlowAgeText();
+			syncFlowAgeBadge(byId('mtkw-flow-age'));
 			var clrSearch = byId('mtkw-flow-search-clr');
 			if (clrSearch) clrSearch.hidden = !app.flowSearch;
 			var clrFilters = byId('mtkw-btn-clear-filters');
@@ -3951,7 +4150,7 @@ return view.extend({
 				title: _('PPE Flow Offload Entries'),
 				badges: [ aui.badge(summaryTxt, '', { id: 'mtkw-flow-count', className: 'mtkw-pill--wrap' }) ],
 				actions: [
-					aui.badge(currentFlowAgeText(), app.flowFrozen ? 'warn' : '', { id: 'mtkw-flow-age' }),
+					aui.badge(currentFlowAgeText(), isFlowAgeWarn() ? 'warn' : '', { id: 'mtkw-flow-age' }),
 					freezeBtn,
 					intSel
 				],
@@ -4091,6 +4290,10 @@ return view.extend({
 					var prevUnavail = app.flowData || {};
 					var hadPpe = Array.isArray(prevUnavail.ppe) && prevUnavail.ppe.length > 0;
 					var respPpe = Array.isArray(data.ppe) ? data.ppe : null;
+					if (respPpe && respPpe.length) {
+						app.ppeLastGoodAt = Date.now();
+						app.ppeLastGoodBaseAge = Number(data.sample_age) || 0;
+					}
 					app.flowData = Object.assign({}, data, {
 						available: false,
 						entries: [],
@@ -4100,6 +4303,11 @@ return view.extend({
 					app.lastStatus.ppe = app.flowData.ppe;
 					app.lastStatus.ppeFailed = true;
 					app.lastStatus.ppeAbsent = !hadPpe && (!respPpe || !respPpe.length);
+					if (app.lastStatus.ppeAbsent) {
+						app.ppeLastGoodAt = null;
+						app.ppeLastGoodBaseAge = 0;
+					}
+					renderHead();
 					renderNav();
 					renderWorkspacePreservingForm();
 					if (app.drawerCtx && app.drawerCtx.kind === 'ppe') renderDrawerContent(true);
@@ -4112,9 +4320,12 @@ return view.extend({
 					return;
 				}
 
+				var okTs = Date.now();
 				app.flowData = data;
 				app.flowBaseAge = Number(data.sample_age) || 0;
-				app.flowFetchedAt = Date.now();
+				app.flowFetchedAt = okTs;
+				app.ppeLastGoodAt = okTs;
+				app.ppeLastGoodBaseAge = app.flowBaseAge;
 				app.lastStatus.ppe = data.ppe;
 				app.lastStatus.ppeFailed = false;
 				app.lastStatus.ppeAbsent = false;
@@ -4125,6 +4336,7 @@ return view.extend({
 					if (ids.indexOf(app.flowFilter.ppe) < 0) app.flowFilter.ppe = '';
 				}
 
+				renderHead();
 				renderNav();
 				renderWorkspacePreservingForm();
 				if (app.drawerCtx && app.drawerCtx.kind === 'ppe') renderDrawerContent(true);
@@ -4146,8 +4358,10 @@ return view.extend({
 				app.lastStatus.ppe = app.flowData.ppe;
 				app.lastStatus.ppeFailed = true;
 				app.lastStatus.ppeAbsent = false;
+				renderHead();
 				renderNav();
 				renderWorkspacePreservingForm();
+				if (app.drawerCtx && app.drawerCtx.kind === 'ppe') renderDrawerContent(true);
 			}).finally(function() {
 				var needRescan = ppeNeedLive && !app.flowFrozen;
 				ppePending = null;
@@ -4224,7 +4438,7 @@ return view.extend({
 					if (c.cur_freq > 0) {
 						var tDeg = (typeof c.temp_milli === 'number' && isFinite(c.temp_milli) && c.temp_milli > 0)
 							? (c.temp_milli / 1000) : null;
-						app.cpuHistory.push({ freq: c.cur_freq, temp: tDeg });
+						app.cpuHistory.push({ ts: Date.now(), freq: c.cur_freq, temp: tDeg });
 						if (app.cpuHistory.length > FREQ_HISTORY_MAX) app.cpuHistory.shift();
 					}
 					var needsFastCore = ingestCores(c.cores);
@@ -4350,8 +4564,7 @@ return view.extend({
 
 		ageTimer = setInterval(function() {
 			if (started && stopDetached()) return;
-			var badge = byId('mtkw-flow-age');
-			if (badge) badge.textContent = currentFlowAgeText();
+			syncFlowAgeBadge(byId('mtkw-flow-age'));
 		}, 1000);
 
 		/* Paint initial shell immediately so layout renders cleanly while RPC loads */

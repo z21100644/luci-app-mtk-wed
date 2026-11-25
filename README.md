@@ -36,6 +36,12 @@ detected automatically from the system, so no per-board configuration is needed:
     with a responsive stacked pipeline on mobile) linked to a slide-over **Frosted
     Inspector Drawer** displaying flow details (including L2 Ethernet MAC and copyable
     5-tuples), port/GDM counters, PPE summary, WED status, and band metrics.
+  - Transient PPE read failures preserve the last good counters and mark them as **Stale**
+    with the last successful sample timestamp across **Overview**, **Datapath Topology**,
+    **Inspector Drawer**, and **PPE Flows**.
+  - WED↔Wi-Fi band topology links include only `attached` WED instances and explicitly mark
+    band pairing on multi-WED hardware as **Estimated** (mainline kernel `debugfs` does not
+    export per-WED 802.11 band binding).
 - **Ethernet ports & GDM MACs**:
   - **Physical Faceplate** view with `ethtool`-detected connector media (`RJ45` / `SFP+`
     / neutral fallback), negotiated speeds from `10M` to `10G`, link state, live RX/TX
@@ -45,10 +51,15 @@ detected automatically from the system, so no per-board configuration is needed:
     explicit per-GDM read failures rather than zeroed counters.
 - **CPU telemetry & scaling**:
   - Architecture, temperature, governor, and maximum frequency controls with per-policy
-    validation, atomic sysfs/UCI rollback on failure, and reboot persistence via
-    `/etc/config/mtk_wed` and `/etc/init.d/mtk-wed`.
-  - Dual-layer CPU frequency and temperature history chart alongside live per-core
-    `/proc/stat` utilization and pure `SoftIRQ` bars.
+    validation, atomic `sysfs`/UCI rollback on failure, and reboot persistence via
+    `/etc/config/mtk_wed` and `/etc/init.d/mtk-wed`. Pre-save `sysfs` policies are
+    journaled under `/var/run/mtk-wed` during `setCpuSettings` so an interrupted save
+    (including `SIGKILL` on `rpcd` exec timeout) is reconciled on the next `getStatus` or
+    `setCpuSettings` call; because `/var/run/mtk-wed` resides on `tmpfs`, journaling
+    recovers from process signals/`SIGKILL` rather than whole-router power loss mid-write.
+  - Dual-layer CPU frequency and temperature history chart plotting real sample timestamps
+    with visual gap breaks across pauses or outages, alongside live per-core `/proc/stat`
+    utilization and pure `SoftIRQ` bars.
 - **Hardware offload controls**:
   - Bound flows and bind rate across all PPE engines; GDM-to-PPE mapping.
   - WED version, attachment state, TX/RX vs TX-only capability, and WO firmware build
@@ -66,7 +77,7 @@ detected automatically from the system, so no per-board configuration is needed:
     completes and honors any active external `apply_sid` confirmation window; live routers
     never silently fall back to direct file writes when `rpcd` is unavailable or
     `apply_sid` is locked (file-level locked CAS `uci_pkg_apply` is used only under
-    `$MTKW_ROOT` offline test roots). Reload ownership stays single-shot: when `procd`
+    `$MTKW_ROOT` offline test roots when `MTKW_TEST_RPCD=1` is unset). Reload ownership stays single-shot: when `procd`
     registers a `firewall` `config.change` trigger and `fw4` is present, `rpcd`'s trigger
     drives the reload while the backend verifies `/var/run/fw4.state`, `/var/run/fw4.lock`,
     and `nft -t list table inet fw4` (running a single `/etc/init.d/firewall reload`
@@ -87,7 +98,9 @@ detected automatically from the system, so no per-board configuration is needed:
     updates are journaled under `/var/run/mtk-wed` so an interrupted save (including
     `SIGKILL` on `rpcd` exec timeout) is automatically rolled back on the next `getStatus`
     or `setWedEnable` call, and if a rollback fails, an inline recovery alert displays the
-    copyable recovery directory path.
+    copyable recovery directory path. As with CPU policy journaling, `/var/run/mtk-wed`
+    lives on `tmpfs`, so journaling recovers from process signals/`SIGKILL` rather than
+    whole-router power loss mid-write.
     An uncollapsible top-level **Reboot Banner** with one-click **Revert** appears whenever
     configured and active WED states differ.
 - **Wi-Fi & MLO**:
@@ -117,3 +130,43 @@ src-git mtkwed https://github.com/z21100644/luci-app-mtk-wed.git
 ./scripts/feeds install luci-app-mtk-wed
 make package/luci-app-mtk-wed/compile
 ```
+
+## Testing & Hardware Verification
+
+### Automated Regression Suites
+
+Run the self-contained regression suites from the repository root (zero external `npm` or
+Python packages required):
+
+```sh
+sh tests/test_backend.sh
+node --test tests/test_frontend.mjs
+python3 tests/test_packaging.py
+```
+
+- `tests/test_backend.sh`: POSIX shell backend suite (compatible with `/bin/sh`, `dash`,
+  and BusyBox `ash`) running inside isolated `MTKW_ROOT` temporary roots. Covers
+  `getStatus` / `getPpeEntries` / `getWifiStats`, WED and CPU `SIGKILL` crash-recovery
+  journals, and `setFlowOffload` transactions; setting `MTKW_TEST_RPCD=1` under `MTKW_ROOT`
+  exercises the live `rpcd`/`uci` transaction path (`apply` → verify → `confirm` /
+  `rollback`) against mock `ubus`, `nft`, and `fw4`.
+- `tests/test_frontend.mjs`: Zero-dependency Node.js (`node:test`) frontend suite covering
+  PPE stale telemetry propagation, real-timestamp CPU chart plotting and gap breaks,
+  bijective WED↔Wi-Fi band mapping across single- and multi-WED topologies, RPC reply
+  validation, and read-only ACL gating.
+- `tests/test_packaging.py`: Static packaging, `jsmin` / strict-CSP, PO/POT bijection
+  (`c-format` flags and `po2lmo` `sfh_hash` collision checks), file permissions, and
+  release archive verification.
+
+### Hardware Verification Matrix
+
+Automated CI and isolated test suites validate simulated SoC topologies and `rpcd`/`fw4`
+interfaces; physical router acceptance is tracked separately below so on-device runs can
+record exact firmware and package versions:
+
+| SoC | Device | OpenWrt / Kernel | fw4 / rpcd | Status |
+| --- | --- | --- | --- | --- |
+| MT7981 | — | — | — | Pending on-device verification |
+| MT7986 | — | — | — | Pending on-device verification |
+| MT7987 | — | — | — | Pending on-device verification |
+| MT7988 | LTC VELO 7 MAX (target acceptance unit) | — | — | Pending on-device verification |

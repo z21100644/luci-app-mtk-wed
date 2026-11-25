@@ -92,7 +92,7 @@ EOF
 }
 
 cleanup_on_exit() {
-	local p cpu_phase WED_RESTORE_FAILED=0 CPU_RESTORE_FAILED=0
+	local p cpu_txn cpu_phase WED_RESTORE_FAILED=0 CPU_RESTORE_FAILED=0 CPU_APPLY_FAILED=0
 	trap - EXIT INT TERM HUP
 	rpcd_session_destroy
 	if [ -n "$CLEANUP_WED_TXN" ]; then
@@ -116,20 +116,39 @@ cleanup_on_exit() {
 			wed_cleanup
 		fi
 	fi
-	if [ "$CLEANUP_CPU_COMMITTING" != 0 ] && [ -n "$CLEANUP_CPU_TXN" ]; then
+	if [ -n "$CLEANUP_CPU_TXN" ]; then
+		cpu_txn=$CLEANUP_CPU_TXN
 		cpu_phase=$CLEANUP_CPU_COMMITTING
 		CLEANUP_CPU_COMMITTING=0
-		if [ "$cpu_phase" = 2 ] &&
+		rd "$cpu_txn/state"
+		if [ "$cpu_phase" = 0 ] || [ "$RD" = staging ] || [ "$RD" = committed ]; then
+			cpu_cleanup "$cpu_txn"
+		elif [ "$cpu_phase" = 2 ] &&
 			uci_ro_read mtk_wed cpu.governor && [ "$UCI_VAL" = "$CLEANUP_CPU_GOV" ] &&
 			uci_ro_read mtk_wed cpu.max_freq && [ "$UCI_VAL" = "$CLEANUP_CPU_FREQ" ]; then
-			:
+			rd "$cpu_txn/steps"
+			cpu_apply_targets "$cpu_txn" "${RD:-$CLEANUP_CPU_APPLIED}" "$CLEANUP_CPU_GOV" "$CLEANUP_CPU_FREQ"
+			if [ "$CPU_APPLY_FAILED" = 0 ]; then
+				cpu_cleanup "$cpu_txn"
+			else
+				CLEANUP_CPU_TXN=
+				CLEANUP_CPU_APPLIED=
+				CLEANUP_CPU_GOV=
+				CLEANUP_CPU_FREQ=
+			fi
 		else
-			cpu_restore "$CLEANUP_CPU_TXN" "$CLEANUP_CPU_APPLIED"
+			rd "$cpu_txn/steps"
+			cpu_restore "$cpu_txn" "${RD:-$CLEANUP_CPU_APPLIED}"
+			if [ "$CPU_RESTORE_FAILED" = 1 ]; then
+				cpu_write_state "$cpu_txn" restore_failed
+				CLEANUP_CPU_TXN=
+				CLEANUP_CPU_APPLIED=
+				CLEANUP_CPU_GOV=
+				CLEANUP_CPU_FREQ=
+			else
+				cpu_cleanup "$cpu_txn"
+			fi
 		fi
-		CLEANUP_CPU_TXN=
-		CLEANUP_CPU_APPLIED=
-		CLEANUP_CPU_GOV=
-		CLEANUP_CPU_FREQ=
 	fi
 	if [ -n "$CLEANUP_PATHS" ]; then
 		while IFS= read -r p; do
@@ -582,6 +601,7 @@ cpu_temp_milli() {
 
 cpu_json() {
 	local p gov govs freqs cur min max hwmax count arch temp cores=
+	cpu_recover_if_idle
 	p=$(cpu_policy)
 	count=$(grep -c '^processor' "$R/proc/cpuinfo" 2>/dev/null)
 	arch=$(awk -F': *' '/^CPU part/{print $2; exit}' "$R/proc/cpuinfo" 2>/dev/null)
@@ -2070,7 +2090,7 @@ set_flow_offload() {
 	local en
 	en=$(json_input "$1" enabled)
 	case "$en" in 0|1) ;; *) printf '{"error":"enabled must be 0 or 1"}'; return ;; esac
-	if [ -z "$R" ]; then
+	if [ -z "$R" ] || [ "${MTKW_TEST_RPCD:-}" = 1 ]; then
 		set_flow_offload_rpcd "$en"
 	else
 		# The offline test root has no rpcd serving its UCI directory.
@@ -2493,27 +2513,234 @@ set_wed_enable() {
 	} 9> "$STATE/wed.lock" || printf '{"error":"cannot lock the settings"}'
 }
 
-cpu_restore() {
-	local txn="$1" applied="$2" idx step p og of
-	CPU_RESTORE_FAILED=0
-	for idx in $applied; do
+cpu_write_state() {
+	local dir="$1" st="$2"
+	printf '%s\n' "$st" > "$dir/.state.tmp" 2>/dev/null && mv -f "$dir/.state.tmp" "$dir/state" 2>/dev/null
+}
+
+cpu_cleanup() {
+	local d="$1" step
+	[ -n "$d" ] || return 0
+	for step in "$d"/[0-9]*; do
+		[ -d "$step" ] || continue
+		rm -rf "$step" 2>/dev/null
+	done
+	rm -f "$d/steps" "$d/target_gov" "$d/target_freq" "$d/.state.tmp" 2>/dev/null
+	rm -f "$d/state" 2>/dev/null
+	rm -rf "$d"
+	if [ "$CLEANUP_CPU_TXN" = "$d" ]; then
+		CLEANUP_CPU_TXN=
+		CLEANUP_CPU_APPLIED=
+		CLEANUP_CPU_COMMITTING=0
+		CLEANUP_CPU_GOV=
+		CLEANUP_CPU_FREQ=
+	fi
+	return 0
+}
+
+cpu_apply_targets() {
+	local txn="$1" steps="$2" tgov="$3" tfreq="$4" idx step p dg df
+	CPU_APPLY_FAILED=0
+	[ -n "$steps" ] || { CPU_APPLY_FAILED=1; return; }
+	for idx in $steps; do
 		step="$txn/$idx"
-		rd "$step/path"; p=$RD
-		rd "$step/gov"; og=$RD
-		rd "$step/freq"; of=$RD
-		if [ -n "$og" ]; then
-			rd "$p/scaling_governor"
-			[ "$RD" = "$og" ] || printf '%s\n' "$og" 2>/dev/null > "$p/scaling_governor" || CPU_RESTORE_FAILED=1
+		if [ ! -d "$step" ]; then
+			CPU_APPLY_FAILED=1
+			continue
 		fi
-		if [ -n "$of" ]; then
+		rd "$step/path"; p=$RD
+		rd "$step/do_gov"; dg=$RD
+		rd "$step/do_freq"; df=$RD
+		if [ -z "$p" ] || [ ! -d "$p" ]; then
+			CPU_APPLY_FAILED=1
+			continue
+		fi
+		case "$dg:$df" in
+			1:0|0:1|1:1) ;;
+			*) CPU_APPLY_FAILED=1; continue ;;
+		esac
+		if [ "$dg" = 1 ]; then
+			rd "$p/scaling_governor"
+			[ "$RD" = "$tgov" ] || printf '%s\n' "$tgov" 2>/dev/null > "$p/scaling_governor" || CPU_APPLY_FAILED=1
+		fi
+		if [ "$df" = 1 ]; then
 			rd "$p/scaling_max_freq"
-			[ "$RD" = "$of" ] || printf '%s\n' "$of" 2>/dev/null > "$p/scaling_max_freq" || CPU_RESTORE_FAILED=1
+			[ "$RD" = "$tfreq" ] || printf '%s\n' "$tfreq" 2>/dev/null > "$p/scaling_max_freq" || CPU_APPLY_FAILED=1
 		fi
 	done
 }
 
-set_cpu_settings() {
-	local gov freq p ok_gov=0 ok_freq=0 p_gov p_freq f failed=0 txn i=0 step applied= CPU_RESTORE_FAILED=0
+cpu_restore() {
+	local txn="$1" applied="$2" idx step p og of dg df
+	CPU_RESTORE_FAILED=0
+	[ -n "$applied" ] || { CPU_RESTORE_FAILED=1; return; }
+	for idx in $applied; do
+		step="$txn/$idx"
+		if [ ! -d "$step" ]; then
+			CPU_RESTORE_FAILED=1
+			continue
+		fi
+		rd "$step/path"; p=$RD
+		rd "$step/do_gov"; dg=$RD
+		rd "$step/do_freq"; df=$RD
+		if [ -z "$p" ] || [ ! -d "$p" ]; then
+			CPU_RESTORE_FAILED=1
+			continue
+		fi
+		case "$dg:$df" in
+			1:0|0:1|1:1) ;;
+			*) CPU_RESTORE_FAILED=1; continue ;;
+		esac
+		if [ "$dg" = 1 ]; then
+			rd "$step/gov"; og=$RD
+			if [ -z "$og" ]; then
+				CPU_RESTORE_FAILED=1
+			else
+				rd "$p/scaling_governor"
+				[ "$RD" = "$og" ] || printf '%s\n' "$og" 2>/dev/null > "$p/scaling_governor" || CPU_RESTORE_FAILED=1
+			fi
+		fi
+		if [ "$df" = 1 ]; then
+			rd "$step/freq"; of=$RD
+			if [ -z "$of" ]; then
+				CPU_RESTORE_FAILED=1
+			else
+				rd "$p/scaling_max_freq"
+				[ "$RD" = "$of" ] || printf '%s\n' "$of" 2>/dev/null > "$p/scaling_max_freq" || CPU_RESTORE_FAILED=1
+			fi
+		fi
+	done
+}
+
+# Recover interrupted $STATE/cpu-save.* journals (e.g. SIGKILL from rpcd exec timeout).
+# Caller MUST already hold $STATE/settings.lock on FD 4.
+cpu_recover_pending() {
+	local d st steps idx step p dg df og of tgov tfreq ok f
+	local CPU_RESTORE_FAILED=0 CPU_APPLY_FAILED=0 WED_REV= WED_STEP_COUNT=0 rc=0
+	for d in "$STATE"/cpu-save.*; do
+		[ -d "$d" ] || continue
+		if [ -e "$d/state" ]; then
+			rd "$d/state"; st=$RD
+			case "$st" in
+				staging|committed)
+					cpu_cleanup "$d"
+					;;
+				uci_committing)
+					rd "$d/steps"; steps=$RD
+					if [ -z "$steps" ]; then
+						wed_collect_rev_steps "$d"
+						steps=$WED_REV
+					fi
+					rd "$d/target_gov"; tgov=$RD
+					rd "$d/target_freq"; tfreq=$RD
+					if [ -z "$steps" ] || [ -z "$tgov" ] || [ -z "$tfreq" ]; then
+						rc=1
+					elif uci_ro_read mtk_wed cpu.governor && [ "$UCI_VAL" = "$tgov" ] &&
+						uci_ro_read mtk_wed cpu.max_freq && [ "$UCI_VAL" = "$tfreq" ]; then
+						cpu_apply_targets "$d" "$steps" "$tgov" "$tfreq"
+						if [ "$CPU_APPLY_FAILED" = 0 ]; then
+							cpu_cleanup "$d"
+						else
+							rc=1
+						fi
+					else
+						cpu_restore "$d" "$steps"
+						if [ "$CPU_RESTORE_FAILED" = 1 ]; then
+							cpu_write_state "$d" restore_failed
+							rc=1
+						else
+							cpu_cleanup "$d"
+						fi
+					fi
+					;;
+				committing|restore_failed)
+					rd "$d/steps"; steps=$RD
+					if [ -z "$steps" ]; then
+						wed_collect_rev_steps "$d"
+						steps=$WED_REV
+					fi
+					cpu_restore "$d" "$steps"
+					if [ "$CPU_RESTORE_FAILED" = 1 ]; then
+						cpu_write_state "$d" restore_failed
+						rc=1
+					else
+						cpu_cleanup "$d"
+					fi
+					;;
+				*)
+					rc=1
+					;;
+			esac
+		elif wed_dir_is_empty "$d"; then
+			cpu_cleanup "$d"
+		else
+			wed_collect_rev_steps "$d"
+			steps=$WED_REV
+			ok=1
+			[ "$WED_STEP_COUNT" -gt 0 ] || ok=0
+			if [ "$ok" = 1 ]; then
+				for f in "$d"/* "$d"/.[!.]* "$d"/..?*; do
+					[ -e "$f" ] || [ -L "$f" ] || continue
+					idx=${f##*/}
+					case "$idx" in ''|*[!0-9]*) ok=0; break ;; esac
+					[ -d "$f" ] || { ok=0; break; }
+				done
+			fi
+			if [ "$ok" = 1 ]; then
+				for idx in $steps; do
+					step="$d/$idx"
+					rd "$step/path"; p=$RD
+					rd "$step/do_gov"; dg=$RD
+					rd "$step/do_freq"; df=$RD
+					if [ -z "$p" ] || [ ! -d "$p" ]; then ok=0; break; fi
+					case "$dg:$df" in 1:0|0:1|1:1) ;; *) ok=0; break ;; esac
+					if [ "$dg" = 1 ]; then rd "$step/gov"; og=$RD; [ -n "$og" ] || { ok=0; break; }; fi
+					if [ "$df" = 1 ]; then rd "$step/freq"; of=$RD; [ -n "$of" ] || { ok=0; break; }; fi
+				done
+			fi
+			if [ "$ok" = 1 ]; then
+				cpu_restore "$d" "$steps"
+				if [ "$CPU_RESTORE_FAILED" = 1 ]; then
+					cpu_write_state "$d" restore_failed
+					rc=1
+				else
+					cpu_cleanup "$d"
+				fi
+			else
+				rc=1
+			fi
+		fi
+	done
+	return "$rc"
+}
+
+# Zero-overhead CPU recovery probe for getStatus (called before reading sysfs):
+# - 0 forks when no $STATE/cpu-save.* directory exists.
+# - Acquires non-blocking shared FD 8 (cpu.lock) + non-blocking FD 4 (settings.lock);
+#   if either lock is busy, leaves in-flight cpu-save.* untouched.
+cpu_recover_if_idle() {
+	local d found=0
+	for d in "$STATE"/cpu-save.*; do
+		[ -d "$d" ] && { found=1; break; }
+	done
+	[ "$found" = 1 ] || return 0
+	[ -d "$STATE" ] && [ -w "$STATE" ] || return 0
+	[ ! -e "$STATE/cpu.lock" ] || [ -w "$STATE/cpu.lock" ] || return 0
+	{
+		if flock -s -n 8; then
+			{
+				if flock_wait x 4 0; then
+					cpu_recover_pending || true
+				fi
+			} 4> "$STATE/settings.lock"
+		fi
+		true
+	} 8> "$STATE/cpu.lock" 2>/dev/null
+	return 0
+}
+
+set_cpu_settings_body() {
+	local gov freq p ok_gov=0 ok_freq=0 p_gov p_freq f failed=0 txn i=0 idx step fwd_steps= rev_steps= CPU_RESTORE_FAILED=0
 	gov=$(json_input "$1" governor)
 	freq=$(json_input "$1" freq)
 	p=$(cpu_policy)
@@ -2525,10 +2752,24 @@ set_cpu_settings() {
 	done
 	[ "$ok_gov" = 1 ] || { printf '{"error":"unsupported governor"}'; return; }
 	[ "$ok_freq" = 1 ] || { printf '{"error":"unsupported frequency"}'; return; }
-	[ -d "$STATE" ] || mkdir -p -m 0700 "$STATE" 2>/dev/null
+	if ! cpu_recover_pending; then
+		printf '{"error":"cannot restore previous CPU settings"}'
+		return
+	fi
 	txn=$(mktemp -d "$STATE/cpu-save.XXXXXX" 2>/dev/null) ||
 		{ printf '{"error":"cannot apply the CPU settings"}'; return; }
-	cleanup_add "$txn"
+	CLEANUP_CPU_TXN=$txn
+	CLEANUP_CPU_APPLIED=
+	CLEANUP_CPU_GOV=$gov
+	CLEANUP_CPU_FREQ=$freq
+	CLEANUP_CPU_COMMITTING=0
+	if ! { cpu_write_state "$txn" staging &&
+		printf '%s\n' "$gov" > "$txn/target_gov" &&
+		printf '%s\n' "$freq" > "$txn/target_freq"; } 2>/dev/null; then
+		cpu_cleanup "$txn"
+		printf '{"error":"cannot apply the CPU settings"}'
+		return
+	fi
 	# Validate per policy (matching init.d/mtk-wed) and snapshot every touched
 	# policy before mutating sysfs so partial failures roll back atomically.
 	for p in "$R"/sys/devices/system/cpu/cpufreq/policy*; do
@@ -2541,27 +2782,29 @@ set_cpu_settings() {
 		mkdir "$step" && printf '%s\n' "$p" > "$step/path" &&
 			printf '%s\n' "$p_gov" > "$step/do_gov" &&
 			printf '%s\n' "$p_freq" > "$step/do_freq" ||
-			{ rm -rf "$txn"; cleanup_del "$txn"; printf '{"error":"cannot apply the CPU settings"}'; return; }
+			{ cpu_cleanup "$txn"; printf '{"error":"cannot apply the CPU settings"}'; return; }
 		if [ "$p_gov" = 1 ]; then
-			rd "$p/scaling_governor"; printf '%s\n' "$RD" > "$step/gov" || { rm -rf "$txn"; cleanup_del "$txn"; printf '{"error":"cannot apply the CPU settings"}'; return; }
+			rd "$p/scaling_governor"; printf '%s\n' "$RD" > "$step/gov" || { cpu_cleanup "$txn"; printf '{"error":"cannot apply the CPU settings"}'; return; }
 		fi
 		if [ "$p_freq" = 1 ]; then
-			rd "$p/scaling_max_freq"; printf '%s\n' "$RD" > "$step/freq" || { rm -rf "$txn"; cleanup_del "$txn"; printf '{"error":"cannot apply the CPU settings"}'; return; }
+			rd "$p/scaling_max_freq"; printf '%s\n' "$RD" > "$step/freq" || { cpu_cleanup "$txn"; printf '{"error":"cannot apply the CPU settings"}'; return; }
 		fi
+		fwd_steps="${fwd_steps:+$fwd_steps }$i"
+		rev_steps="$i${rev_steps:+ $rev_steps}"
 	done
-	[ "$i" -gt 0 ] || { rm -rf "$txn"; cleanup_del "$txn"; printf '{"error":"cannot apply the CPU settings"}'; return; }
-	CLEANUP_CPU_TXN=$txn
-	CLEANUP_CPU_APPLIED=
-	CLEANUP_CPU_GOV=$gov
-	CLEANUP_CPU_FREQ=$freq
+	[ "$i" -gt 0 ] || { cpu_cleanup "$txn"; printf '{"error":"cannot apply the CPU settings"}'; return; }
+	if ! { printf '%s\n' "$rev_steps" > "$txn/steps" && cpu_write_state "$txn" committing; } 2>/dev/null; then
+		cpu_cleanup "$txn"
+		printf '{"error":"cannot apply the CPU settings"}'
+		return
+	fi
+	CLEANUP_CPU_APPLIED=$rev_steps
 	CLEANUP_CPU_COMMITTING=1
-	for step in "$txn"/[0-9]*; do
-		[ -d "$step" ] || continue
+	for idx in $fwd_steps; do
+		step="$txn/$idx"
 		rd "$step/path"; p=$RD
 		rd "$step/do_gov"; p_gov=$RD
 		rd "$step/do_freq"; p_freq=$RD
-		applied="${step##*/} $applied"
-		CLEANUP_CPU_APPLIED=$applied
 		if [ "$p_gov" = 1 ]; then
 			if ! printf '%s\n' "$gov" 2>/dev/null > "$p/scaling_governor"; then failed=1; break; fi
 		fi
@@ -2570,16 +2813,33 @@ set_cpu_settings() {
 		fi
 	done
 	if [ "$failed" = 1 ]; then
-		cpu_restore "$txn" "$applied"
-		CLEANUP_CPU_COMMITTING=0
-		CLEANUP_CPU_TXN=
-		CLEANUP_CPU_APPLIED=
-		CLEANUP_CPU_GOV=
-		CLEANUP_CPU_FREQ=
-		rm -rf "$txn"; cleanup_del "$txn"
+		cpu_restore "$txn" "$rev_steps"
 		if [ "$CPU_RESTORE_FAILED" = 1 ]; then
+			cpu_write_state "$txn" restore_failed
+			CLEANUP_CPU_COMMITTING=0
+			CLEANUP_CPU_TXN=
+			CLEANUP_CPU_APPLIED=
+			CLEANUP_CPU_GOV=
+			CLEANUP_CPU_FREQ=
 			printf '{"error":"saving the CPU settings failed and restoring previous settings also failed"}'
 		else
+			cpu_cleanup "$txn"
+			printf '{"error":"cannot apply the CPU settings"}'
+		fi
+		return
+	fi
+	if ! cpu_write_state "$txn" uci_committing; then
+		cpu_restore "$txn" "$rev_steps"
+		if [ "$CPU_RESTORE_FAILED" = 1 ]; then
+			cpu_write_state "$txn" restore_failed
+			CLEANUP_CPU_COMMITTING=0
+			CLEANUP_CPU_TXN=
+			CLEANUP_CPU_APPLIED=
+			CLEANUP_CPU_GOV=
+			CLEANUP_CPU_FREQ=
+			printf '{"error":"saving the CPU settings failed and restoring previous settings also failed"}'
+		else
+			cpu_cleanup "$txn"
 			printf '{"error":"cannot apply the CPU settings"}'
 		fi
 		return
@@ -2587,27 +2847,43 @@ set_cpu_settings() {
 	CLEANUP_CPU_COMMITTING=2
 	if ! uci_pkg_apply mtk_wed 'set:cpu=cpu' "set:cpu.governor=$gov" "set:cpu.max_freq=$freq"; then
 		CLEANUP_CPU_COMMITTING=1
-		cpu_restore "$txn" "$applied"
-		CLEANUP_CPU_COMMITTING=0
-		CLEANUP_CPU_TXN=
-		CLEANUP_CPU_APPLIED=
-		CLEANUP_CPU_GOV=
-		CLEANUP_CPU_FREQ=
-		rm -rf "$txn"; cleanup_del "$txn"
+		cpu_restore "$txn" "$rev_steps"
 		if [ "$CPU_RESTORE_FAILED" = 1 ]; then
+			cpu_write_state "$txn" restore_failed
+			CLEANUP_CPU_COMMITTING=0
+			CLEANUP_CPU_TXN=
+			CLEANUP_CPU_APPLIED=
+			CLEANUP_CPU_GOV=
+			CLEANUP_CPU_FREQ=
 			printf '{"error":"saving the CPU settings failed and restoring previous settings also failed"}'
 		else
+			cpu_cleanup "$txn"
 			printf '{"error":"cannot save the CPU settings; previous settings restored"}'
 		fi
 		return
 	fi
+	cpu_write_state "$txn" committed
 	CLEANUP_CPU_COMMITTING=0
-	CLEANUP_CPU_TXN=
-	CLEANUP_CPU_APPLIED=
-	CLEANUP_CPU_GOV=
-	CLEANUP_CPU_FREQ=
-	rm -rf "$txn"; cleanup_del "$txn"
+	cpu_cleanup "$txn"
 	printf '{"result":"ok","governor":"%s","freq":%s}' "$gov" "$freq"
+}
+
+set_cpu_settings() {
+	local rc
+	[ -d "$STATE" ] || mkdir -p -m 0700 "$STATE" 2>/dev/null
+	{
+		flock_wait x 8 "$SETTINGS_LOCK_WAIT"
+		rc=$?
+		if [ "$rc" = 1 ]; then
+			printf '{"error":"another save is in progress"}'
+			return 0
+		elif [ "$rc" != 0 ]; then
+			printf '{"error":"cannot lock the settings"}'
+			return 0
+		fi
+		set_cpu_settings_body "$1"
+		return 0
+	} 8> "$STATE/cpu.lock" || printf '{"error":"cannot lock the settings"}'
 }
 
 case "$1" in

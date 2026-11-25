@@ -1,0 +1,44 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+    tags: ['v*']
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install shell tools
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends dash busybox shellcheck
+
+      - name: ShellCheck
+        run: shellcheck -s sh -S warning -e SC1008,SC2034,SC2154,SC3013,SC3043 luci-app-mtk-wed/root/usr/libexec/rpcd/luci.mtk_wed luci-app-mtk-wed/root/etc/init.d/mtk-wed tests/test_backend.sh
+
+      - name: Backend Regression Suite (dash)
+        run: dash tests/test_backend.sh
+
+      - name: Backend Regression Suite (BusyBox ash)
+        run: TEST_SHELL="busybox ash" busybox ash tests/test_backend.sh
+
+      - name: Frontend Syntax & Unit/DOM Suite
+        run: >-
+          node --check luci-app-mtk-wed/htdocs/luci-static/resources/view/mtk_wed/ds-tokens.js &&
+          node --check luci-app-mtk-wed/htdocs/luci-static/resources/view/mtk_wed/ui.js &&
+          node --check luci-app-mtk-wed/htdocs/luci-static/resources/view/mtk_wed/status.js &&
+          node --test tests/test_frontend.mjs
+
+      - name: Packaging, i18n, po2lmo & jsmin Gate
+        run: python3 tests/test_packaging.py
