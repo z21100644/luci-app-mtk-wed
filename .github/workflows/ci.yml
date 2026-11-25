@@ -25,7 +25,11 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y --no-install-recommends dash busybox shellcheck
 
       - name: ShellCheck
-        run: shellcheck -s sh -S warning -e SC1008,SC2034,SC2154,SC3013,SC3043 luci-app-mtk-wed/root/usr/libexec/rpcd/luci.mtk_wed luci-app-mtk-wed/root/etc/init.d/mtk-wed tests/test_backend.sh
+        run: |
+          # Backend local declarations intentionally initialize variables to empty.
+          # mkdir -m 0700 applies to the private state directory, not its ancestors.
+          shellcheck -s sh -S warning -e SC1008,SC2034,SC2154,SC3013,SC3043,SC1007,SC2174 luci-app-mtk-wed/root/usr/libexec/rpcd/luci.mtk_wed
+          shellcheck -s sh -S warning -e SC1008,SC2034,SC2154,SC3013,SC3043 luci-app-mtk-wed/root/etc/init.d/mtk-wed tests/test_backend.sh
 
       - name: Backend Regression Suite (dash)
         run: dash tests/test_backend.sh
